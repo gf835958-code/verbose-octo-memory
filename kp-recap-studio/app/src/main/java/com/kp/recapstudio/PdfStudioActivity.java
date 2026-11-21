@@ -44,7 +44,7 @@ import java.util.Locale;
 public final class PdfStudioActivity extends Activity {
     private static final int PICK_PDF=301, SAVE_PDF=302;
     private static final int BG=0xFF080E21, PANEL=0xFF172242, CYAN=0xFF54E8D9;
-    private EditText sourceText, myanmarText, titleText;
+    private EditText sourceText, myanmarText, titleText, languageInput;
     private TextView status;
     private Uri pdfUri;
     private Uri audiobookUri;
@@ -67,7 +67,7 @@ public final class PdfStudioActivity extends Activity {
         scroll.addView(col);setContentView(scroll);
         col.addView(label("‹    KP RECAP • PDF STUDIO",23,Color.WHITE));
         col.addView(label("PDF → Text → Myanmar PDF / Audiobook",15,CYAN));
-        col.addView(label("Selectable-text PDFs only. Scanned images need OCR. Automatic translation is not available in this build.",13,0xFFE1D08D));
+        col.addView(label("Selectable-text PDFs supported. Online translation requires owner-hosted server; OCR for scanned PDF is not yet enabled.",13,0xFFE1D08D));
         button(col,"1. SELECT PDF BOOK",()->{
             Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -84,6 +84,23 @@ public final class PdfStudioActivity extends Activity {
             Intent send=new Intent(Intent.ACTION_SEND).setType("text/plain");
             send.putExtra(Intent.EXTRA_TEXT,text.length()>18000?text.substring(0,18000):text);
             startActivity(Intent.createChooser(send,"Translate with an app you choose"));
+        });
+        col.addView(label("PDF source language (auto or ISO code)",14,CYAN));
+        languageInput=input("auto / en / th / ja / zh ...",1);
+        languageInput.setText("auto");col.addView(languageInput);
+        button(col,"🌐 AUTO TRANSLATE BOOK TEXT → MYANMAR (ONLINE)",()->{
+            String original=sourceText.getText().toString().trim();
+            if(original.isEmpty()){show("Import a selectable-text PDF first");return;}
+            show("Translation requires your configured Cloudflare Worker and an internet connection.");
+            MyanmarTranslationClient.translateText(this,original,
+                languageInput.getText().toString().trim(),new MyanmarTranslationClient.Callback(){
+                    @Override public void update(String progress){show(progress);}
+                    @Override public void finished(String translated,String ignored){
+                        myanmarText.setText(translated);
+                        show("Translation complete. Review Myanmar spelling and paragraph layout before PDF export.");
+                    }
+                    @Override public void error(String error){show("Translation error: "+error);}
+                });
         });
         col.addView(label("Myanmar text • edit or paste translated text below",14,CYAN));
         myanmarText=input("မြန်မာစာကို ဒီနေရာမှာ ရေးပါ၊ ကူးထည့်ပါ။",9);col.addView(myanmarText);
