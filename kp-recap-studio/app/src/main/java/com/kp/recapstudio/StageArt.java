@@ -25,6 +25,10 @@ final class StageArt {
     private StageArt() { }
 
     static File create(Context context, boolean dhamma, Uri customBackground, String title, String subtitle) throws Exception {
+        return create(context,dhamma,customBackground,title,subtitle,0);
+    }
+    static File create(Context context, boolean dhamma, Uri customBackground, String title, String subtitle, int sceneStyle) throws Exception {
+        int style=Math.max(0,Math.min(3,sceneStyle));
         Bitmap bitmap = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bitmap);
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -41,9 +45,13 @@ final class StageArt {
             p.setColor(0x77000000);
             c.drawRect(0,0,W,H,p);
         } else if (dhamma) {
-            drawDhamma(c,p);
+            drawDhamma(c,p,style);
         } else {
-            drawStudio(c,p);
+            drawStudio(c,p,style);
+        }
+        if(style>0){
+            int[] wash={0,0x3F6755EA,0x3828DAD1,0x43B08A3B};
+            p.setColor(wash[style]);c.drawRect(0,0,W,H,p);
         }
         p.setColor(0xB3000A18);
         c.drawRoundRect(new RectF(42,26,1238,154),24,24,p);
@@ -57,8 +65,9 @@ final class StageArt {
         return file;
     }
 
-    private static void drawStudio(Canvas c, Paint p) {
-        p.setShader(new LinearGradient(0,0,0,H, new int[]{0xFF11162C,0xFF211944,0xFF09182F}, null, Shader.TileMode.CLAMP));
+    private static void drawStudio(Canvas c, Paint p, int style) {
+        int[][] schemes={{0xFF11162C,0xFF211944,0xFF09182F},{0xFF15112D,0xFF301A54,0xFF0B0C23},{0xFF0F2F45,0xFF22435D,0xFF07172F},{0xFF38253D,0xFF513457,0xFF161C35}};
+        p.setShader(new LinearGradient(0,0,0,H, schemes[style], null, Shader.TileMode.CLAMP));
         c.drawRect(0,0,W,H,p); p.setShader(null);
         p.setColor(0xFF243B58); c.drawRoundRect(new RectF(100,160,1180,640),35,35,p);
         p.setColor(0xFF172337); c.drawRoundRect(new RectF(127,183,1150,615),25,25,p);
@@ -74,8 +83,9 @@ final class StageArt {
         p.setColor(0xFF67E6E2); c.drawRoundRect(new RectF(775,328,807,391),13,13,p);
     }
 
-    private static void drawDhamma(Canvas c, Paint p) {
-        p.setShader(new LinearGradient(0,0,0,H,new int[]{0xFF22364F,0xFF638B7B,0xFF244C38},null,Shader.TileMode.CLAMP));
+    private static void drawDhamma(Canvas c, Paint p, int style) {
+        int[][] schemes={{0xFF22364F,0xFF638B7B,0xFF244C38},{0xFF544454,0xFFCE9B6C,0xFF3A563C},{0xFF172A47,0xFF62698F,0xFF253D51},{0xFF6F532A,0xFFDCBC73,0xFF4A6A4E}};
+        p.setShader(new LinearGradient(0,0,0,H,schemes[style],null,Shader.TileMode.CLAMP));
         c.drawRect(0,0,W,H,p); p.setShader(null);
         p.setColor(0xFF385C3E); c.drawOval(new RectF(-100,390,1380,850),p);
         // Tree trunk and leaves.
