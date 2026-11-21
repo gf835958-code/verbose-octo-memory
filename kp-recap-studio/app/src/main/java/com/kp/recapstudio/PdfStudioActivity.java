@@ -47,6 +47,7 @@ public final class PdfStudioActivity extends Activity {
     private EditText sourceText, myanmarText, titleText;
     private TextView status;
     private Uri pdfUri;
+    private Uri audiobookUri;
     private TextToSpeech tts;
     private final Handler ui=new Handler(Looper.getMainLooper());
     private volatile boolean processing=false;
@@ -97,6 +98,7 @@ public final class PdfStudioActivity extends Activity {
         button(col,"OPEN AUDIOBOOK VIDEO STUDIO",()->{
             Intent i=new Intent(this,MainActivity.class);
             i.putExtra("open_mode","audiobook");
+            if(audiobookUri!=null)i.setData(audiobookUri);
             startActivity(i);
         });
         status=label("Ready • No PDF imported",13,CYAN);col.addView(status);
@@ -236,6 +238,7 @@ public final class PdfStudioActivity extends Activity {
                     File out=new File(getExternalFilesDir(Environment.DIRECTORY_MUSIC),"KP_Audiobook_"+System.currentTimeMillis()+".wav");
                     WavAssembler.merge(voiceParts,out);
                     Uri published=saveAudio(out);
+                    audiobookUri=published;
                     show("Audiobook ready: "+out.length()/1024+" KB WAV saved to Music/KP Recap Studio");
                     ui.post(()->{
                         Intent i=new Intent(this,MainActivity.class);
