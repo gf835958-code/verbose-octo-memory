@@ -66,7 +66,7 @@ import java.util.Locale;
  */
 @UnstableApi
 public final class MainActivity extends Activity {
-    private static final int PICK_MEDIA=101, PICK_IMAGE=102, PICK_SRT=103, VOICE_DICTATION=104;
+    private static final int PICK_MEDIA=101, PICK_IMAGE=102, PICK_SRT=103, VOICE_DICTATION=104, PICK_WHISPER_MODEL=105, SAVE_SRT=106;
     private static final int VIDEO=0, AUDIOBOOK=1, DHAMMA=2;
     private static final int BG=0xFF080E21, PANEL=0xFF172242, CYAN=0xFF45E5D4, WHITE=Color.WHITE, MUTED=0xFFABBDDB;
     private int mode=VIDEO;
@@ -343,6 +343,10 @@ public final class MainActivity extends Activity {
             action(caption,"CC  IMPORT TIMED SUBTITLES (.SRT)",false,()->pick(PICK_SRT,"*/*"));
             srtStatus=text(srtText.isEmpty()?"No SRT imported":"SRT loaded: "+MotionOverlay.parseSrt(srtText).size()+" captions",12,CYAN,false);
             gap(caption,srtStatus,8);
+            action(caption,"◉  AUTO TRANSCRIBE VIDEO (OFFLINE WHISPER)",true,this::transcribeVideo);
+            action(caption,"⬇  DOWNLOAD OFFLINE SPEECH MODEL (~75 MB)",false,this::confirmSpeechModelDownload);
+            action(caption,"▤  IMPORT EXISTING WHISPER MODEL (.bin)",false,()->pick(PICK_WHISPER_MODEL,"*/*"));
+            action(caption,"CC  EXPORT GENERATED SRT FILE",false,this::exportSrtFile);
             action(caption,"🎙  DICTATE SCRIPT",false,this::dictate);
             action(caption,"♫  GENERATE SYSTEM TTS FILE",false,this::synthesizeVoice);
             useVoiceoverCheck=new CheckBox(this);
@@ -360,7 +364,7 @@ public final class MainActivity extends Activity {
         progress.setMax(100);gap(exportingPanel,progress,8);
         statusText=text("Ready • Select a file to begin.",12,CYAN,false);gap(exportingPanel,statusText,10);
         action(exportingPanel,"▣  OPEN LAST EXPORTED VIDEO",false,this::openOutput);
-        panel("FEATURE NOTICE","Automatic video ASR, Myanmar AI translation, scanned-PDF OCR and green screen are not ready. TTS video replacement requires an installed Myanmar voice.");
+        panel("FEATURE NOTICE","Offline Whisper recognition works after installing its ~75 MB multilingual model. Myanmar AI translation, PDF OCR and green screen still require additional engines. TTS video replacement needs installed Myanmar voice.");
     }
     private void paintPresetButtons(){
         if(presetButtons==null)return;
@@ -392,9 +396,9 @@ public final class MainActivity extends Activity {
     }
     private void settingsPage(){
         header("App Settings",false);title("KP Recap Studio","Original Android video creation app");
-        panel("VERSION","0.3 alpha • Local media • No login • Android 8+");
+        panel("VERSION","0.4 alpha • Local media • On-device Whisper • Android 8+");
         panel("READY TO TEST","Manual timed subtitles, video trimming, aspect ratios, 2D scenes, system TTS and MP4 export.");
-        panel("NOT READY","AI Myanmar auto-translation, video-to-text, scanned-PDF OCR and chroma key.");
+        panel("NOT READY","Myanmar auto-translation, scanned-PDF OCR, background rendering and chroma key. Video ASR needs downloaded Whisper model.");
     }
 
     private void pick(int request,String mime){
@@ -414,6 +418,23 @@ public final class MainActivity extends Activity {
         }
         Uri uri=data.getData();if(uri==null)return;
         try{getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
+        if(request==PICK_WHISPER_MODEL){
+            status("Importing Whisper model...");
+            SpeechModelStore.installFromFile(this,uri,new SpeechModelStore.Progress(){
+                public void update(String value){runOnUiThread(()->status(value));}
+                public void completed(File file){runOnUiThread(()->status("Offline Whisper ready: "+(file.length()/1048576)+" MB"));}
+                public void failed(String error){runOnUiThread(()->status("Model import failed: "+error));}
+            });
+            return;
+        }
+        if(request==SAVE_SRT){
+            try(OutputStream out=getContentResolver().openOutputStream(uri)){
+                if(out==null)throw new IOException("Cannot write SRT");
+                out.write(srtText.getBytes(StandardCharsets.UTF_8));
+                status("SRT saved.");
+            }catch(Exception e){status("SRT export error: "+e.getMessage());}
+            return;
+        }
         if(request==PICK_MEDIA){
             selectedMedia=uri;selectedFileName=uri.getLastPathSegment();
             if(fileText!=null)fileText.setText("Selected: "+selectedFileName);
@@ -451,6 +472,53 @@ public final class MainActivity extends Activity {
             intent.putExtra(RecognizerIntent.EXTRA_PROMPT,"Speak text for manual captions");
             startActivityForResult(intent,VOICE_DICTATION);
         }catch(Exception e){status("Speech recognition app not available");}
+    }
+    private void exportSrtFile(){
+        if(srtText.trim().isEmpty()){status("Use Auto Transcribe or import SRT first.");return;}
+        Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("text/plain");
+        intent.putExtra(Intent.EXTRA_TITLE,"KP_Recap_Subtitles.srt");
+        startActivityForResult(intent,SAVE_SRT);
+    }
+    private void confirmSpeechModelDownload(){
+        if(SpeechModelStore.ready(this)){status("Whisper model already installed.");return;}
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("Offline speech model download")
+            .setMessage("Download approximately 75 MB of multilingual Whisper data? Mobile data may be charged. Download once, then speech recognition can run offline.")
+            .setNegativeButton("Cancel",null)
+            .setPositiveButton("Download", (dialog,which)->SpeechModelStore.download(this,new SpeechModelStore.Progress(){
+                public void update(String value){runOnUiThread(()->status(value));}
+                public void completed(File file){runOnUiThread(()->status("Offline Whisper model ready: "+(file.length()/1048576)+" MB"));}
+                public void failed(String error){runOnUiThread(()->status("Speech model download failed: "+error));}
+            })).show();
+    }
+    private void transcribeVideo(){
+        if(selectedMedia==null){status("Select a video first.");return;}
+        if(exporting){status("Finish MP4 rendering first.");return;}
+        if(!SpeechModelStore.ready(this)){status("Install Whisper model first using Download/Import button.");return;}
+        final Uri media=selectedMedia;
+        status("Decoding video audio for Whisper...");
+        new Thread(()->{
+            try{
+                File wav=MediaAudioDecoder.decode(this,media,pct->{
+                    if(pct%10==0)runOnUiThread(()->status("Extracting audio "+pct+"%"));
+                });
+                OfflineWhisper.transcribe(this,SpeechModelStore.model(this),wav,new OfflineWhisper.Callback(){
+                    @Override public void onMessage(String msg){runOnUiThread(()->status(msg));}
+                    @Override public void onResult(String transcript,String generatedSrt){
+                        runOnUiThread(()->{
+                            if(!media.equals(selectedMedia)){status("Input changed; previous ASR result ignored.");return;}
+                            srtText=generatedSrt;
+                            if(subtitleInput!=null)subtitleInput.setText(transcript);
+                            if(srtStatus!=null)srtStatus.setText("Whisper recognized "+MotionOverlay.parseSrt(srtText).size()+" subtitle segments");
+                            status("Offline transcription done; review SRT timings before MP4 export.");
+                        });
+                    }
+                    @Override public void onError(String error){runOnUiThread(()->status("Whisper error: "+error));}
+                });
+            }catch(Exception e){runOnUiThread(()->status("Could not decode video audio: "+e.getMessage()));}
+        },"kp-asr-decode").start();
     }
     private void synthesizeVoice(){
         if(tts==null){toast("TTS is not ready");return;}
