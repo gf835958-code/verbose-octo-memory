@@ -80,6 +80,11 @@ public final class MainActivity extends Activity {
     private ProgressBar progress;
     private Button exportButton;
     private File narrationFile;
+    private boolean autoMyanmarFlow=false;
+    private boolean ttsWorking=false;
+    private List<String> speechChunks;
+    private List<File> speechParts;
+    private int speechIndex=0;
     private CheckBox useVoiceoverCheck;
     private Spinner ratioSpinner;
     private CheckBox cropCheck;
@@ -343,6 +348,7 @@ public final class MainActivity extends Activity {
             action(caption,"CC  IMPORT TIMED SUBTITLES (.SRT)",false,()->pick(PICK_SRT,"*/*"));
             srtStatus=text(srtText.isEmpty()?"No SRT imported":"SRT loaded: "+MotionOverlay.parseSrt(srtText).size()+" captions",12,CYAN,false);
             gap(caption,srtStatus,8);
+            action(caption,"★  ONE-CLICK MYANMAR VIDEO (BETA)",true,this::oneClickMyanmarVideo);
             action(caption,"◉  AUTO TRANSCRIBE VIDEO (OFFLINE WHISPER)",true,this::transcribeVideo);
             action(caption,"⬇  DOWNLOAD OFFLINE SPEECH MODEL (~75 MB)",false,this::confirmSpeechModelDownload);
             action(caption,"▤  IMPORT EXISTING WHISPER MODEL (.bin)",false,()->pick(PICK_WHISPER_MODEL,"*/*"));
@@ -495,6 +501,22 @@ public final class MainActivity extends Activity {
         intent.putExtra(Intent.EXTRA_TITLE,"KP_Recap_Subtitles.srt");
         startActivityForResult(intent,SAVE_SRT);
     }
+    private void oneClickMyanmarVideo(){
+        if(selectedMedia==null){status("Choose a video first.");return;}
+        if(autoMyanmarFlow||exporting||ttsWorking){status("Finish the current job first.");return;}
+        if(!SpeechModelStore.ready(this)){status("Install the offline speech model first (~75 MB)");return;}
+        if(MyanmarTranslationClient.endpoint(this).isEmpty()){
+            status("Translation Worker is not connected. Configure HTTPS Worker URL in Tools.");return;
+        }
+        if(tts==null){status("Android TTS not ready.");return;}
+        int voice=tts.setLanguage(new Locale("my","MM"));
+        if(voice==TextToSpeech.LANG_NOT_SUPPORTED||voice==TextToSpeech.LANG_MISSING_DATA){
+            status("No Burmese voice available. Install/select Myanmar TTS first.");return;
+        }
+        autoMyanmarFlow=true;
+        status("One-click started: Offline ASR → Myanmar translation → TTS → MP4");
+        transcribeVideo();
+    }
     private void translateWhisperSrt(){
         if(srtText.trim().isEmpty()){
             status("Transcribe video with Whisper or import a timed SRT first.");return;
@@ -507,9 +529,12 @@ public final class MainActivity extends Activity {
                 srtText=newSrt;
                 if(subtitleInput!=null)subtitleInput.setText(translated);
                 if(srtStatus!=null)srtStatus.setText("Myanmar translated: "+MotionOverlay.parseSrt(srtText).size()+" timed captions");
-                status("Myanmar translated SRT ready. Review captions then Render MP4.");
+                if(autoMyanmarFlow){
+                    status("Myanmar translation complete; generating voice...");
+                    synthesizeVoice();
+                }else status("Myanmar translated SRT ready. Review captions then Render MP4.");
             }
-            @Override public void error(String error){status("Translation failed: "+error);}
+            @Override public void error(String error){autoMyanmarFlow=false;status("Translation failed: "+error);}
         });
     }
     private void confirmSpeechModelDownload(){
@@ -543,34 +568,93 @@ public final class MainActivity extends Activity {
                             srtText=generatedSrt;
                             if(subtitleInput!=null)subtitleInput.setText(transcript);
                             if(srtStatus!=null)srtStatus.setText("Whisper recognized "+MotionOverlay.parseSrt(srtText).size()+" subtitle segments");
-                            status("Offline transcription done; review SRT timings before MP4 export.");
+                            if(autoMyanmarFlow){
+                                status("Speech recognized; translating to Myanmar...");
+                                translateWhisperSrt();
+                            }else status("Offline transcription done; review SRT timings before MP4 export.");
                         });
                     }
-                    @Override public void onError(String error){runOnUiThread(()->status("Whisper error: "+error));}
+                    @Override public void onError(String error){runOnUiThread(()->{autoMyanmarFlow=false;status("Whisper error: "+error);});}
                 });
-            }catch(Exception e){runOnUiThread(()->status("Could not decode video audio: "+e.getMessage()));}
+            }catch(Exception e){runOnUiThread(()->{autoMyanmarFlow=false;status("Could not decode video audio: "+e.getMessage());});}
         },"kp-asr-decode").start();
     }
+    private static List<String> splitSpeech(String raw,int max){
+        ArrayList<String> segments=new ArrayList<>();
+        for(int start=0;start<raw.length();){
+            int end=Math.min(raw.length(),start+max);
+            if(end<raw.length()){
+                int boundary=Math.max(raw.lastIndexOf(' ',end),raw.lastIndexOf('\n',end));
+                if(boundary>start+max/2)end=boundary+1;
+            }
+            String part=raw.substring(start,end).trim();
+            if(!part.isEmpty())segments.add(part);
+            start=end;
+        }
+        return segments;
+    }
     private void synthesizeVoice(){
-        if(tts==null){toast("TTS is not ready");return;}
+        if(ttsWorking){status("Voice synthesis already running.");return;}
+        if(tts==null){autoMyanmarFlow=false;toast("TTS not ready");return;}
         String content=subtitleInput.getText().toString().trim();
-        if(content.isEmpty()){toast("Type the script first");return;}
+        if(content.isEmpty()){autoMyanmarFlow=false;toast("Type a script first");return;}
         int language=tts.setLanguage(new Locale("my","MM"));
         if(language==TextToSpeech.LANG_MISSING_DATA||language==TextToSpeech.LANG_NOT_SUPPORTED){
-            status("Myanmar TTS voice is not installed. Install it in your device's TTS settings.");return;
+            autoMyanmarFlow=false;
+            status("Burmese TTS not installed. Select a Myanmar voice in Android TTS settings.");return;
         }
-        File output=new File(getExternalFilesDir(Environment.DIRECTORY_MUSIC),"kp-voice-"+System.currentTimeMillis()+".wav");
+        speechChunks=splitSpeech(content,2200);
+        if(speechChunks.isEmpty()||speechChunks.size()>200){
+            autoMyanmarFlow=false;status("Voice text too long or empty (max 200 chunks).");return;
+        }
+        speechParts=new ArrayList<>();
+        speechIndex=0;ttsWorking=true;narrationFile=null;
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener(){
-            @Override public void onStart(String utteranceId){runOnUiThread(()->status("Synthesizing voice..."));}
-            @Override public void onDone(String utteranceId){runOnUiThread(()->{
-                narrationFile=output;
-                status("Narration ready. Enable 'Replace video audio' then Render MP4.");
-            });}
-            @Override public void onError(String utteranceId){runOnUiThread(()->status("System TTS synthesis failed"));}
+            @Override public void onStart(String id){
+                runOnUiThread(()->status("Voice chunk "+speechIndex+"/"+speechChunks.size()));
+            }
+            @Override public void onDone(String id){runOnUiThread(()->nextVoiceChunk());}
+            @Override public void onError(String id){
+                runOnUiThread(()->{ttsWorking=false;autoMyanmarFlow=false;status("Burmese voice synthesis failed");});
+            }
         });
-        narrationFile=null;
-        int result=tts.synthesizeToFile(content,new Bundle(),output,"KPVoice");
-        if(result!=TextToSpeech.SUCCESS)status("TTS engine rejected request.");
+        nextVoiceChunk();
+    }
+    private void nextVoiceChunk(){
+        if(!ttsWorking)return;
+        if(speechIndex>=speechChunks.size()){
+            status("Combining voice chunks into narration WAV...");
+            final List<File> parts=new ArrayList<>(speechParts);
+            new Thread(()->{
+                try{
+                    File home=getExternalFilesDir(Environment.DIRECTORY_MUSIC);
+                    if(home==null)throw new IOException("Music directory unavailable");
+                    File merged=new File(home,"kp-dub-"+System.currentTimeMillis()+".wav");
+                    WavAssembler.merge(parts,merged);
+                    runOnUiThread(()->{
+                        narrationFile=merged;ttsWorking=false;
+                        if(autoMyanmarFlow){
+                            if(useVoiceoverCheck!=null)useVoiceoverCheck.setChecked(true);
+                            status("Narration ready; rendering MP4...");
+                            export();
+                        }else status("Narration ready. Enable voice replacement and render MP4.");
+                    });
+                }catch(Exception e){
+                    runOnUiThread(()->{ttsWorking=false;autoMyanmarFlow=false;status("Voice merge failed: "+e.getMessage());});
+                }finally{for(File f:parts)f.delete();}
+            },"kp-merge-voice").start();
+            return;
+        }
+        File home=getExternalFilesDir(Environment.DIRECTORY_MUSIC);
+        if(home==null){autoMyanmarFlow=false;ttsWorking=false;status("No voice output directory");return;}
+        File part=new File(home,"kp-dub-part-"+System.nanoTime()+"-"+speechIndex+".wav");
+        speechParts.add(part);
+        String data=speechChunks.get(speechIndex);
+        int index=speechIndex++;
+        int result=tts.synthesizeToFile(data,new Bundle(),part,"KPVoice"+index);
+        if(result!=TextToSpeech.SUCCESS){
+            ttsWorking=false;autoMyanmarFlow=false;status("TTS rejected chunk "+(index+1));
+        }
     }
 
     private void export(){
@@ -594,13 +678,13 @@ public final class MainActivity extends Activity {
                     new Thread(()->{
                         try{
                             Uri published=publishVideo(exportFile);
-                            runOnUiThread(()->{lastSavedUri=published;progress.setProgress(100);exportButton.setEnabled(true);status("SUCCESS! MP4 saved to Movies/KP Recap Studio");});
+                            runOnUiThread(()->{lastSavedUri=published;progress.setProgress(100);exportButton.setEnabled(true);autoMyanmarFlow=false;status("SUCCESS! MP4 saved to Movies/KP Recap Studio");});
                         }catch(Exception e){runOnUiThread(()->{exportButton.setEnabled(true);status("MP4 created in app storage, but Gallery copy failed: "+e.getMessage());});}
                     }).start();
                 }
                 @Override public void onError(Composition composition,ExportResult exportResult,ExportException exportException){
                     exporting=false;exportButton.setEnabled(true);
-                    status("Render failed: "+exportException.getMessage());
+                    autoMyanmarFlow=false;status("Render failed: "+exportException.getMessage());
                 }
             });
             exporting=true;exportButton.setEnabled(false);progress.setProgress(0);status("Starting render...");
