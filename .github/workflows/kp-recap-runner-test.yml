@@ -2,6 +2,8 @@ name: KP Recap CI Runner Test
 on:
   push:
     branches: [feat/kp-recap-ci-check]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
