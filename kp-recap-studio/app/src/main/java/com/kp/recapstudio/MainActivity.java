@@ -83,6 +83,7 @@ public final class MainActivity extends Activity {
     private File narrationFile;
     private boolean autoMyanmarFlow=false;
     private boolean ttsWorking=false;
+    private float[] waveformLevels;
     private List<String> speechChunks;
     private List<File> speechParts;
     private int speechIndex=0;
@@ -339,7 +340,8 @@ public final class MainActivity extends Activity {
             }
             paintPresetButtons();
             pad(studio,9);
-            studio.addView(text("Waveform animation is decorative, not yet audio-reactive.",11,MUTED,false));
+            studio.addView(text("Audio-reactive waveform uses measured WAV energy after analysis.",11,MUTED,false));
+            action(studio,"♫  ANALYZE REAL AUDIO WAVEFORM",false,this::analyzeSelectedAudio);
         }
         LinearLayout caption=panel("TITLE & SUBTITLES","Myanmar Unicode supported.");
         titleInput=edit("Title / ခေါင်းစဉ်",false);gap(caption,titleInput,9);
@@ -481,6 +483,7 @@ public final class MainActivity extends Activity {
             if(cropCheck!=null)cropCheck.setChecked(obj.optBoolean("crop",false));
             if(srtStatus!=null)srtStatus.setText("Restored "+MotionOverlay.parseSrt(srtText).size()+" timed captions");
             status("Project restored. Confirm file is still accessible before rendering.");
+            if(mode!=VIDEO)analyzeSelectedAudio();
         }catch(Exception e){toast("Cannot open project: "+e.getMessage());}
     }
     private void pick(int request,String mime){
@@ -518,7 +521,8 @@ public final class MainActivity extends Activity {
             return;
         }
         if(request==PICK_MEDIA){
-            selectedMedia=uri;selectedFileName=uri.getLastPathSegment();
+            selectedMedia=uri;selectedFileName=uri.getLastPathSegment();waveformLevels=null;
+            if(mode!=VIDEO)analyzeSelectedAudio();
             if(fileText!=null)fileText.setText("Selected: "+selectedFileName);
             refreshPreview();
             status("Input selected. You can render now.");
@@ -792,7 +796,7 @@ public final class MainActivity extends Activity {
                 File image=StageArt.create(this,mode==DHAMMA,selectedImage,title,subtitle,selectedScene);
                 MediaItem visual=new MediaItem.Builder().setUri(Uri.fromFile(image)).setImageDurationMs(duration).build();
                 List<TextureOverlay> animationLayers=new ArrayList<>();
-                animationLayers.add(new MotionOverlay(false,"",null));
+                animationLayers.add(new MotionOverlay(false,"",null,waveformLevels));
                 if(mode==DHAMMA)animationLayers.add(new DhammaAudienceOverlay());
                 EditedMediaItem editedImage=new EditedMediaItem.Builder(visual)
                     .setFrameRate(24)
@@ -858,6 +862,22 @@ public final class MainActivity extends Activity {
             MediaScannerConnection.scanFile(this,new String[]{copy.getAbsolutePath()},new String[]{"video/mp4"},null);
             return Uri.fromFile(copy);
         }
+    }
+    private void analyzeSelectedAudio(){
+        if(selectedMedia==null){status("Choose an audio file first.");return;}
+        if(mode==VIDEO){status("Audio waveform is used by Audiobook and Dhamma Studio.");return;}
+        final Uri source=selectedMedia;
+        waveformLevels=null;
+        AudioEnvelope.analyze(this,source,new AudioEnvelope.Callback(){
+            @Override public void update(String message){runOnUiThread(()->status(message));}
+            @Override public void ready(float[] levels){runOnUiThread(()->{
+                if(source.equals(selectedMedia)){
+                    waveformLevels=levels;
+                    status("Audio-reactive waveform ready: "+levels.length+" time windows. Render MP4.");
+                }
+            });}
+            @Override public void failed(String problem){runOnUiThread(()->status("Audio analysis failed, visual fallback active: "+problem));}
+        });
     }
     private void openOutput(){
         Uri uri=lastSavedUri;
