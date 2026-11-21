@@ -1,0 +1,45 @@
+name: KP Recap Studio APK Build
+on:
+  push:
+    branches: [feat/kp-recap-ci-check]
+    paths:
+      - 'kp-recap-studio/**'
+      - '.github/workflows/kp-recap-apk.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'kp-recap-studio/**'
+      - '.github/workflows/kp-recap-apk.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android platform
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Compile debug APK
+        working-directory: kp-recap-studio
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Validate APK
+        run: |
+          APK=kp-recap-studio/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | head -n 15
+          sha256sum "$APK"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KP-Recap-Studio-TEST-APK
+          path: kp-recap-studio/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

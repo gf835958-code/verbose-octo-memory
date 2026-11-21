@@ -1,0 +1,23 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.kp.recapstudio'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'com.kp.recapstudio'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0-alpha'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes { release { minifyEnabled false } }
+}
+
+dependencies {
+    implementation 'androidx.media3:media3-transformer:1.11.1'
+    implementation 'androidx.media3:media3-effect:1.11.1'
+}
