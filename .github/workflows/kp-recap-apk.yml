@@ -48,7 +48,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish direct-download Android test APK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/kp-recap-ci-check'
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -58,7 +58,7 @@ jobs:
           cp "$APK" "$NAME"
           TAG=kp-recap-v0.4-alpha
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --prerelease --title "KP Recap Studio v0.4 ALPHA TEST" --target "$GITHUB_SHA" \
+            gh release create "$TAG" --prerelease --title "KP Recap Studio v0.4 ALPHA TEST" --target feat/kp-recap-ci-check \
               --notes "For Android 8+ including vivo V27. This is a DEBUG TEST build, not a finished app. Whisper model (~75 MB) must be obtained separately. Cloudflare Myanmar translation backend is not yet deployed; real-device feature QA remains pending."
           fi
           gh release upload "$TAG" "$NAME" --clobber
