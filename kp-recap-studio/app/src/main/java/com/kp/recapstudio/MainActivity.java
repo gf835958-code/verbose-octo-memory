@@ -22,6 +22,7 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.CheckBox;
 import android.widget.Spinner;
 import android.widget.ArrayAdapter;
@@ -94,60 +95,257 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void buildScreen(){
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(BG);
-        body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(dp(16),dp(16),dp(16),dp(36));scroll.addView(body);setContentView(scroll);
-        TextView heading=label("KP RECAP STUDIO",26,WHITE,true);body.addView(heading);
-        TextView tag=label("AI-ready Media Creation  •  Original Android Project",12,CYAN,false);body.addView(tag);
-        TextView tip=label("Free • Android 8+ • No account • Local file picker",12,MUTED,false);gap(body,tip,14);
-        LinearLayout tabs=new LinearLayout(this);tabs.setOrientation(LinearLayout.VERTICAL);body.addView(tabs);
-        addButton(tabs,"①  VIDEO RECAP + MYANMAR SUBTITLES",()->{mode=VIDEO;selectedMedia=null;selectedFileName="";buildScreen();});
-        addButton(tabs,"②  AUDIOBOOK STUDIO",()->{mode=AUDIOBOOK;selectedMedia=null;selectedFileName="";buildScreen();});
-        addButton(tabs,"③  2D DHAMMA STAGE",()->{mode=DHAMMA;selectedMedia=null;selectedFileName="";buildScreen();});
-        TextView section=label(mode==VIDEO ? "Video Recap Editor" : (mode==AUDIOBOOK ? "Audiobook Studio" : "2D Dhamma Stage"),21,WHITE,true);gap(body,section,16);
-        TextView explain=label(mode==VIDEO ?
-            "Import your video. Add Myanmar captions directly or import a timed .srt file, then export a real MP4. Automatic translation is not in this alpha." :
-            (mode==AUDIOBOOK ? "Import an audio recording and render a new MP4 with an original studio scene and animated decorative visualizer." :
-            "Import an audio recording and render a video with an original illustrated Dhamma stage and 50 audience figures."),13,MUTED,false);
-        gap(body,explain,10);
-        addButton(body,mode==VIDEO?"📁  SELECT VIDEO":"📁  SELECT AUDIO",()->pick(PICK_MEDIA,mode==VIDEO?"video/*":"audio/*"));
-        fileText=label(selectedMedia==null?"No input selected":selectedFileName,13,CYAN,false);gap(body,fileText,10);
-        addButton(body,"▶  PREVIEW INPUT",this::previewInput);
-        if(mode!=VIDEO) addButton(body,"🖼  CHOOSE OPTIONAL BACKGROUND IMAGE",()->pick(PICK_IMAGE,"image/*"));
-        titleInput=edit("Video title / ခေါင်းစဉ်",false);gap(body,titleInput,8);
-        subtitleInput=edit(mode==VIDEO?"Myanmar subtitle (shown if no SRT)":"Subtitle / Speaker name",true);gap(body,subtitleInput,8);
-        if(mode==VIDEO){
-            TextView ratioLabel=label("Video Aspect Ratio",14,WHITE,true);gap(body,ratioLabel,8);
-            ratioSpinner=new Spinner(this);
-            ratioSpinner.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,
-                new String[]{"Original","9:16 Portrait","3:4 Portrait","16:9 Landscape","1:1 Square","4:5 Portrait"}));
-            gap(body,ratioSpinner,6);
-            cropCheck=new CheckBox(this);
-            cropCheck.setText("Fill / Crop video to chosen ratio (unchecked = Fit)");
-            cropCheck.setTextColor(MUTED);
-            gap(body,cropCheck,12);
-            addButton(body,"📝  IMPORT TIMED SUBTITLES (.SRT)",()->pick(PICK_SRT,"*/*"));
-            srtStatus=label(srtText.isEmpty()?"No SRT: text will appear for the full video":"SRT loaded — timed caption export enabled",12,MUTED,false);
-            gap(body,srtStatus,8);
-            addButton(body,"🎙  DICTATE SCRIPT USING MICROPHONE",this::dictate);
-            TextView note=label("Voice dictation uses the phone microphone; it does NOT transcribe the imported video.",12,MUTED,false);gap(body,note,10);
-            addButton(body,"🔊  GENERATE SYSTEM TTS VOICE FILE",this::synthesizeVoice);
-            TextView voiceNote=label("A Myanmar voice must be installed in Android TTS. WAV is exported separately; voice replacement is not yet implemented.",12,MUTED,false);gap(body,voiceNote,10);
-            TextView trim=label("Optional trim range (seconds)",14,WHITE,true);gap(body,trim,8);
-            startSecondsInput=edit("Start: 0",false);startSecondsInput.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
-            gap(body,startSecondsInput,6);
-            endSecondsInput=edit("End: leave blank for full video",false);endSecondsInput.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
-            gap(body,endSecondsInput,8);
+    // Real Android UI. Promotional references are not screenshots of this APK.
+    private int screen=0;  // 0 dashboard, 1 editor, 2 projects, 3 tools, 4 settings
+    private android.widget.ImageView mediaPreview;
+    private TextView previewHint;
+
+    private android.graphics.drawable.GradientDrawable gradient(int start,int end,int stroke,int radius){
+        android.graphics.drawable.GradientDrawable d=new android.graphics.drawable.GradientDrawable(
+            android.graphics.drawable.GradientDrawable.Orientation.TL_BR,new int[]{start,end});
+        d.setCornerRadius(dp(radius));
+        if(stroke!=0)d.setStroke(dp(1),stroke);
+        return d;
+    }
+    private LinearLayout column(){
+        LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;
+    }
+    private TextView text(String value,int size,int color,boolean bold){
+        TextView t=label(value,size,color,bold);t.setLineSpacing(dp(2),1f);return t;
+    }
+    private void pad(LinearLayout parent,int height){
+        parent.addView(new View(this),new LinearLayout.LayoutParams(1,dp(height)));
+    }
+    private void root(){
+        LinearLayout shell=column();shell.setBackgroundColor(BG);setContentView(shell);
+        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setVerticalScrollBarEnabled(false);
+        body=column();body.setPadding(dp(16),dp(15),dp(16),dp(25));scroll.addView(body);
+        shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        if(screen==0)home();else if(screen==1)editor();else if(screen==2)projects();
+        else if(screen==3)toolsPage();else settingsPage();
+        LinearLayout nav=new LinearLayout(this);nav.setGravity(Gravity.CENTER);
+        nav.setBackground(gradient(0xFF111D39,0xFF0C1530,0xFF2A3D64,0));
+        String[] texts={"⌂\nHome","▣\nProjects","✦\nTools","⚙\nSettings"};
+        for(int i=0;i<4;i++){
+            final int page=i==0?0:i+1;
+            TextView n=text(texts[i],12,screen==page || screen==1&&i==0?0xFFB889FF:MUTED,true);
+            n.setGravity(Gravity.CENTER);n.setOnClickListener(v->go(page));
+            nav.addView(n,new LinearLayout.LayoutParams(0,dp(65),1));
         }
-        TextView exportInfo=label("Output: MP4 (H.264 video + AAC audio). Saved to Movies/KP Recap Studio.",12,MUTED,false);gap(body,exportInfo,10);
-        exportButton=addButton(body,"🚀  RENDER & SAVE VIDEO",this::export);
-        addButton(body,"⛔  CANCEL RENDER",()->{if(transformer!=null&&exporting){transformer.cancel();exporting=false;status("Render cancelled");exportButton.setEnabled(true);}});
-        progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);gap(body,progress,12);
-        statusText=label("အသုံးပြုရန် Video သို့မဟုတ် Audio ဖိုင်တစ်ခုရွေးပါ။",13,CYAN,false);gap(body,statusText,10);
-        addButton(body,"📺  OPEN LAST EXPORTED VIDEO",this::openOutput);
-        TextView caveat=label("ALPHA • Automatic Video Speech Recognition, Gemini Translation, Smart TTS Dubbing, Chroma Key and real audio-reactive waveforms are not implemented yet. No credit checks, ads, logins or hidden API keys.",12,MUTED,false);
-        gap(body,caveat,16);
+        shell.addView(nav,new LinearLayout.LayoutParams(-1,dp(67)));
+    }
+    private void go(int page){
+        if(exporting&&page!=1){toast("Render လုပ်နေစဉ် Editor မှ မထွက်ပါနှင့်။");return;}
+        screen=page;root();
+    }
+    private void buildScreen(){screen=0;root();}
+    private void header(String title,boolean isHome){
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+        if(isHome){
+            android.widget.ImageView icon=new android.widget.ImageView(this);
+            icon.setImageResource(com.kp.recapstudio.R.mipmap.ic_launcher);
+            icon.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+            row.addView(icon,new LinearLayout.LayoutParams(dp(47),dp(47)));
+        }else{
+            TextView back=text("‹",31,WHITE,true);back.setGravity(Gravity.CENTER);
+            back.setOnClickListener(v->go(0));row.addView(back,new LinearLayout.LayoutParams(dp(47),dp(47)));
+        }
+        LinearLayout heading=column();heading.addView(text(title,18,WHITE,true));
+        heading.addView(text(isHome?"AI Video & Audiobook Creator":"CREATE  •  EDIT  •  EXPORT",10,CYAN,false));
+        LinearLayout.LayoutParams hl=new LinearLayout.LayoutParams(0,-2,1);hl.leftMargin=dp(9);row.addView(heading,hl);
+        TextView settings=text("⚙",22,MUTED,true);settings.setGravity(Gravity.CENTER);
+        settings.setOnClickListener(v->go(4));row.addView(settings,new LinearLayout.LayoutParams(dp(40),dp(45)));
+        body.addView(row);pad(body,19);
+    }
+    private void title(String title,String detail){
+        body.addView(text(title,22,WHITE,true));pad(body,6);
+        body.addView(text(detail,12,MUTED,false));pad(body,13);
+    }
+    private LinearLayout panel(String title,String desc){
+        LinearLayout b=column();b.setPadding(dp(15),dp(15),dp(15),dp(13));
+        b.setBackground(gradient(0xFF1B2B52,0xFF111A34,0xFF324E7D,17));
+        if(title!=null){b.addView(text(title,15,WHITE,true));pad(b,5);}
+        if(desc!=null){b.addView(text(desc,12,MUTED,false));pad(b,12);}
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(13);
+        body.addView(b,lp);return b;
+    }
+    private TextView styled(String text,boolean primary,Runnable task){
+        TextView v=text(text,14,WHITE,true);v.setGravity(Gravity.CENTER);
+        v.setPadding(dp(9),dp(13),dp(9),dp(13));
+        v.setBackground(primary?
+            gradient(0xFF0DBAF1,0xFF8532E5,0,14):
+            gradient(0xFF263C67,0xFF1D2B51,0xFF405D88,13));
+        v.setOnClickListener(w->task.run());return v;
+    }
+    private void action(LinearLayout parent,String txt,boolean primary,Runnable task){
+        TextView v=styled(txt,primary,task);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
+        lp.bottomMargin=dp(10);parent.addView(v,lp);
+    }
+    private LinearLayout row(){
+        LinearLayout r=new LinearLayout(this);r.setOrientation(LinearLayout.HORIZONTAL);
+        body.addView(r,new LinearLayout.LayoutParams(-1,-2));return r;
+    }
+    private void tile(LinearLayout parent,String icon,String name,String hint,int color,Runnable task){
+        LinearLayout card=column();card.setPadding(dp(13),dp(14),dp(7),dp(13));
+        card.setMinimumHeight(dp(144));card.setBackground(gradient(color,0xFF19203D,0xFF405287,18));
+        card.addView(text(icon,27,WHITE,true));pad(card,10);
+        card.addView(text(name,15,WHITE,true));pad(card,5);
+        card.addView(text(hint,11,0xFFC7D5EF,false));
+        card.setOnClickListener(v->task.run());
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);
+        if(parent.getChildCount()==0)lp.rightMargin=dp(6);else lp.leftMargin=dp(6);
+        parent.addView(card,lp);
+    }
+    private void home(){
+        header("KP RECAP STUDIO",true);
+        LinearLayout hero=column();hero.setPadding(dp(17),dp(20),dp(17),dp(17));
+        hero.setBackground(gradient(0xFF39228F,0xFF056CB2,0xFF686DDE,22));
+        hero.addView(text("✦  YOUR CREATIVE STUDIO",11,0xFF69FFF0,true));
+        pad(hero,12);hero.addView(text("Create stories with video.",22,WHITE,true));
+        pad(hero,6);hero.addView(text("Recap • မြန်မာစာတန်းထိုး • Audiobook",12,0xFFDDEBFF,false));
+        pad(hero,15);action(hero,"▶  START VIDEO EDITING",true,()->openEditor(0));
+        body.addView(hero);pad(body,24);
+        body.addView(text("CREATE",12,CYAN,true));pad(body,11);
+        LinearLayout a=row();
+        tile(a,"▣","Video Recap","Manual SRT • MP4",0xFF0A5CA9,()->openEditor(0));
+        tile(a,"♫","Audiobook Studio","Audio + stage",0xFF7130A6,()->openEditor(1));
+        pad(body,12);
+        LinearLayout b=row();
+        tile(b,"✿","2D Dhamma Stage","50 audience figures",0xFF986124,()->openEditor(2));
+        tile(b,"▤","My Projects","Saved MP4 exports",0xFF0A736E,()->go(2));
+        pad(body,23);body.addView(text("STUDIO TOOLS",12,CYAN,true));pad(body,11);
+        LinearLayout c=row();
+        tile(c,"CC","Subtitle Tools","Timed captions",0xFF30579A,()->openEditor(0));
+        tile(c,"◷","Export History","Watch saved videos",0xFF613E94,()->go(2));
+        pad(body,16);
+        LinearLayout note=panel("TEST VERSION", "Offline-first manual editor. Automatic AI translation and smart dubbing are not available in this build.");
+        note.addView(text("No account • No subscription • Android 8+",12,CYAN,false));
+    }
+    private void openEditor(int newMode){
+        if(mode!=newMode){selectedMedia=null;selectedImage=null;selectedFileName="";srtText="";}
+        mode=newMode;screen=1;root();
+    }
+    private void preview(){
+        FrameLayout frame=new FrameLayout(this);
+        frame.setBackground(gradient(0xFF202B56,0xFF0B152C,0xFF537EAB,20));
+        frame.setClipToOutline(true);
+        mediaPreview=new android.widget.ImageView(this);
+        mediaPreview.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        frame.addView(mediaPreview,new FrameLayout.LayoutParams(-1,-1));
+        previewHint=text(selectedMedia==null?(mode==0?"▣\nTap to add video":"♫\nTap to add audio"):"▶  PLAY PREVIEW",17,WHITE,true);
+        previewHint.setGravity(Gravity.CENTER);
+        frame.addView(previewHint,new FrameLayout.LayoutParams(-1,-1));
+        body.addView(frame,new LinearLayout.LayoutParams(-1,dp(200)));
+        frame.setOnClickListener(v->{if(selectedMedia!=null)previewInput();else pick(PICK_MEDIA,mode==0?"video/*":"audio/*");});
+        refreshPreview();
+    }
+    private void refreshPreview(){
+        if(mediaPreview==null)return;
+        if(mode!=0){
+            try{
+                File image=StageArt.create(this,mode==2,selectedImage,"","");
+                android.graphics.BitmapFactory.Options o=new android.graphics.BitmapFactory.Options();o.inSampleSize=2;
+                mediaPreview.setImageBitmap(android.graphics.BitmapFactory.decodeFile(image.getAbsolutePath(),o));
+            }catch(Exception ignored){}
+            return;
+        }
+        if(selectedMedia==null){mediaPreview.setImageDrawable(null);return;}
+        Uri current=selectedMedia;android.widget.ImageView target=mediaPreview;
+        new Thread(()->{
+            android.media.MediaMetadataRetriever m=new android.media.MediaMetadataRetriever();
+            android.graphics.Bitmap frame=null;
+            try{m.setDataSource(this,current);frame=m.getFrameAtTime(0);}catch(Exception ignored){}
+            finally{try{m.release();}catch(Exception ignored){}}
+            android.graphics.Bitmap result=frame;
+            runOnUiThread(()->{
+                if(target==mediaPreview && current.equals(selectedMedia)){
+                    target.setImageBitmap(result);
+                    if(result!=null && previewHint!=null)previewHint.setText("▶");
+                }
+            });
+        }).start();
+    }
+    private void editor(){
+        header(mode==0?"AI Video Recap":mode==1?"Audiobook Studio":"2D Dhamma Stage",false);
+        TextView steps=text("01   IMPORT       ›       02   EDIT       ›       03   EXPORT",11,0xFFE8E2FF,true);
+        steps.setGravity(Gravity.CENTER);steps.setPadding(dp(7),dp(13),dp(7),dp(13));
+        steps.setBackground(gradient(0xFF23245F,0xFF173154,0xFF54519A,12));
+        body.addView(steps);pad(body,15);
+        preview();pad(body,14);
+        LinearLayout media=panel(mode==0?"VIDEO SOURCE":"AUDIO SOURCE","Import a file, then tap the preview above to play it.");
+        action(media,mode==0?"▣  SELECT VIDEO":"♫  SELECT AUDIO",true,()->pick(PICK_MEDIA,mode==0?"video/*":"audio/*"));
+        fileText=text(selectedMedia==null?"No file selected":selectedFileName,12,CYAN,false);
+        media.addView(fileText);pad(media,7);
+        if(mode!=0){
+            action(media,"▤  CHOOSE STUDIO BACKGROUND",false,()->pick(PICK_IMAGE,"image/*"));
+        }
+        if(mode==0){
+            LinearLayout ratio=panel("VIDEO SETTINGS","Choose ratio and Fit or Fill/Crop for your export.");
+            ratioSpinner=new Spinner(this);
+            ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,
+                new String[]{"Original","9:16  Portrait","3:4  Portrait","16:9  Landscape","1:1  Square","4:5  Social"});
+            ratioSpinner.setAdapter(adapter);ratioSpinner.setBackground(gradient(0xFF29406D,0xFF1C2B4F,0xFF46628D,11));
+            gap(ratio,ratioSpinner,10);
+            cropCheck=new CheckBox(this);cropCheck.setText("Fill / Crop   (unchecked = Fit)");
+            cropCheck.setTextColor(WHITE);gap(ratio,cropCheck,12);
+            ratio.addView(text("TRIM START / END (seconds)",11,CYAN,true));pad(ratio,8);
+            startSecondsInput=edit("Start: 0",false);
+            startSecondsInput.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+            gap(ratio,startSecondsInput,7);
+            endSecondsInput=edit("End: full video",false);
+            endSecondsInput.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+            gap(ratio,endSecondsInput,6);
+        }else{
+            LinearLayout studio=panel(mode==1?"AUDIOBOOK STUDIO":"DHAMMA STAGE","Live illustrated preview. Add your own background image if desired.");
+            studio.addView(text(mode==1?"✦ Original narrator, desk & studio scene":"✿ Original stage, trees & 50 audience figures",13,CYAN,true));
+            pad(studio,8);
+            studio.addView(text("The waveform is decorative animation; it is not yet audio-reactive.",11,MUTED,false));
+        }
+        LinearLayout caption=panel("TITLE & SUBTITLES","Myanmar Unicode supported.");
+        titleInput=edit("Title / ခေါင်းစဉ်",false);gap(caption,titleInput,9);
+        subtitleInput=edit(mode==0?"မြန်မာစာတန်းထိုး / Myanmar subtitle":"Subtitle / Speaker name",true);
+        gap(caption,subtitleInput,9);
+        if(mode==0){
+            action(caption,"CC  IMPORT TIMED SUBTITLES (.SRT)",false,()->pick(PICK_SRT,"*/*"));
+            srtStatus=text(srtText.isEmpty()?"No SRT imported":"SRT loaded: "+MotionOverlay.parseSrt(srtText).size()+" captions",12,CYAN,false);
+            gap(caption,srtStatus,8);
+            action(caption,"🎙  DICTATE SCRIPT",false,this::dictate);
+            action(caption,"♫  GENERATE SYSTEM TTS FILE",false,this::synthesizeVoice);
+            caption.addView(text("TTS creates a separate voice file, not automatic dubbing. Voice availability depends on Android.",11,MUTED,false));
+        }
+        LinearLayout exportingPanel=panel("RENDER / EXPORT","MP4 (H.264/AAC) → Movies/KP Recap Studio");
+        exportButton=addButton(exportingPanel,"▶   RENDER & SAVE MP4",this::export);
+        exportButton.setBackgroundTintList(ColorStateList.valueOf(0xFF7642E8));
+        action(exportingPanel,"✕  CANCEL RENDER",false,()->{
+            if(transformer!=null&&exporting){transformer.cancel();exporting=false;status("Render cancelled");exportButton.setEnabled(true);}
+        });
+        progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        progress.setMax(100);gap(exportingPanel,progress,8);
+        statusText=text("Ready • Select a file to begin.",12,CYAN,false);gap(exportingPanel,statusText,10);
+        action(exportingPanel,"▣  OPEN LAST EXPORTED VIDEO",false,this::openOutput);
+        panel("FEATURE NOTICE","Automatic ASR, cloud/AI translation, replacement dubbing, green screen and PDF conversion are not in this test build.");
+    }
+    private void projects(){
+        header("My Projects",false);
+        title("Export History","Video files generated during this session.");
+        LinearLayout recent=panel("LATEST MP4","Your last exported file, if present.");
+        action(recent,"▶  OPEN LAST VIDEO",true,this::openOutput);
+        LinearLayout info=panel("GALLERY LOCATION","Movies / KP Recap Studio");
+        info.addView(text("Use your phone's Gallery or Files app to browse all exports.",12,MUTED,false));
+    }
+    private void toolsPage(){
+        header("Studio Tools",false);title("Tools","Select a working editor.");
+        LinearLayout tools=panel("WORKING TOOLS","Video editor, audio studio, SRT captions, MP4 export.");
+        action(tools,"▣  VIDEO & SRT TOOLS",true,()->openEditor(0));
+        action(tools,"♫  AUDIOBOOK VIDEO",false,()->openEditor(1));
+        action(tools,"✿  DHAMMA STAGE",false,()->openEditor(2));
+        panel("COMING LATER","AI automatic translation, video transcription, smart voice dubbing, PDF import.");
+    }
+    private void settingsPage(){
+        header("App Settings",false);title("KP Recap Studio","Original Android video creation app");
+        panel("VERSION","0.2 UI preview • Local media • No login • Android 8+");
+        panel("READY TO TEST","Manual timed subtitles, video trimming, aspect ratios, 2D scenes, system TTS and MP4 export.");
+        panel("NOT READY","AI Myanmar translation, video-to-text, chroma key, PDF translation and voiceover audio replacement.");
     }
 
     private void pick(int request,String mime){
@@ -162,17 +360,18 @@ public final class MainActivity extends Activity {
         if(result!=RESULT_OK||data==null) return;
         if(request==VOICE_DICTATION){
             ArrayList<String> values=data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
-            if(values!=null&&!values.isEmpty())subtitleInput.setText(values.get(0));
+            if(values!=null&&!values.isEmpty()&&subtitleInput!=null)subtitleInput.setText(values.get(0));
             return;
         }
         Uri uri=data.getData();if(uri==null)return;
         try{getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
         if(request==PICK_MEDIA){
             selectedMedia=uri;selectedFileName=uri.getLastPathSegment();
-            fileText.setText("Selected: "+selectedFileName);
+            if(fileText!=null)fileText.setText("Selected: "+selectedFileName);
+            refreshPreview();
             status("Input selected. You can render now.");
         }else if(request==PICK_IMAGE){
-            selectedImage=uri;status("Custom background selected.");
+            selectedImage=uri;status("Custom background selected.");refreshPreview();
         }else if(request==PICK_SRT){
             try(InputStream in=getContentResolver().openInputStream(uri)){
                 if(in==null)throw new IOException("Unable to read SRT");
@@ -181,7 +380,7 @@ public final class MainActivity extends Activity {
                 while((n=in.read(buf))>0){total+=n;if(total>2_000_000)throw new IOException("SRT exceeds 2 MB");out.write(buf,0,n);}
                 srtText=out.toString("UTF-8");
                 int count=MotionOverlay.parseSrt(srtText).size();
-                srtStatus.setText("SRT loaded: "+count+" timed captions");
+                if(srtStatus!=null)srtStatus.setText("SRT loaded: "+count+" timed captions");
                 status("Imported "+count+" captions.");
             }catch(Exception e){status("SRT import failed: "+e.getMessage());}
         }
@@ -378,6 +577,7 @@ public final class MainActivity extends Activity {
     private void gap(LinearLayout parent,View v,int bottom){
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(bottom);parent.addView(v,lp);
     }
+    @Override public void onBackPressed(){if(screen!=0){go(0);return;}super.onBackPressed();}
     @Override protected void onDestroy(){
         if(transformer!=null && exporting)transformer.cancel();
         if(tts!=null){tts.stop();tts.shutdown();}
