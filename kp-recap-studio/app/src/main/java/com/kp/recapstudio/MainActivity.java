@@ -75,7 +75,7 @@ public final class MainActivity extends Activity {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private Transformer transformer;
     private TextToSpeech tts;
-    private EditText titleInput, subtitleInput, startSecondsInput, endSecondsInput;
+    private EditText titleInput, subtitleInput, startSecondsInput, endSecondsInput, langInput;
     private TextView statusText, fileText, srtStatus;
     private ProgressBar progress;
     private Button exportButton;
@@ -347,6 +347,9 @@ public final class MainActivity extends Activity {
             action(caption,"⬇  DOWNLOAD OFFLINE SPEECH MODEL (~75 MB)",false,this::confirmSpeechModelDownload);
             action(caption,"▤  IMPORT EXISTING WHISPER MODEL (.bin)",false,()->pick(PICK_WHISPER_MODEL,"*/*"));
             action(caption,"CC  EXPORT GENERATED SRT FILE",false,this::exportSrtFile);
+            langInput=edit("Source language: auto (or en, th, ja, zh...)",false);
+            langInput.setText("auto");gap(caption,langInput,7);
+            action(caption,"🌐  TRANSLATE SRT → MYANMAR (ONLINE)",false,this::translateWhisperSrt);
             action(caption,"🎙  DICTATE SCRIPT",false,this::dictate);
             action(caption,"♫  GENERATE SYSTEM TTS FILE",false,this::synthesizeVoice);
             useVoiceoverCheck=new CheckBox(this);
@@ -390,6 +393,17 @@ public final class MainActivity extends Activity {
         action(tools,"▣  VIDEO & SRT TOOLS",true,()->openEditor(0));
         action(tools,"♫  AUDIOBOOK VIDEO",false,()->openEditor(1));
         action(tools,"✿  DHAMMA STAGE",false,()->openEditor(2));
+        LinearLayout backend=panel("MYANMAR TRANSLATION BACKEND",
+          "Owner-hosted HTTPS Cloudflare Worker. Only transcript text is sent; a server connection is required. No user API key.");
+        EditText address=edit("https://your-worker.workers.dev",false);
+        address.setText(MyanmarTranslationClient.endpoint(this));
+        gap(backend,address,8);
+        action(backend,"SAVE TRANSLATION SERVER URL",true,()->{
+            try {
+                MyanmarTranslationClient.saveEndpoint(this,address.getText().toString());
+                toast("Translation endpoint saved.");
+            } catch(Exception e){toast(e.getMessage());}
+        });
         LinearLayout pdf=panel("PDF BOOK TOOLS","Extract PDF text, edit Myanmar PDF, and create audiobook WAV.");
         action(pdf,"▤  OPEN PDF BOOK STUDIO",true,this::openPdfStudio);
         panel("COMING LATER","Automatic Myanmar AI translation, speech-to-text and chroma key.");
@@ -398,7 +412,7 @@ public final class MainActivity extends Activity {
         header("App Settings",false);title("KP Recap Studio","Original Android video creation app");
         panel("VERSION","0.4 alpha • Local media • On-device Whisper • Android 8+");
         panel("READY TO TEST","Manual timed subtitles, video trimming, aspect ratios, 2D scenes, system TTS and MP4 export.");
-        panel("NOT READY","Myanmar auto-translation, scanned-PDF OCR, background rendering and chroma key. Video ASR needs downloaded Whisper model.");
+        panel("NOT READY","Cloudflare Myanmar backend needs authenticated deployment. Scanned PDF OCR, synchronized dubbing, background rendering and chroma key remain incomplete.");
     }
 
     private void pick(int request,String mime){
@@ -480,6 +494,23 @@ public final class MainActivity extends Activity {
         intent.setType("text/plain");
         intent.putExtra(Intent.EXTRA_TITLE,"KP_Recap_Subtitles.srt");
         startActivityForResult(intent,SAVE_SRT);
+    }
+    private void translateWhisperSrt(){
+        if(srtText.trim().isEmpty()){
+            status("Transcribe video with Whisper or import a timed SRT first.");return;
+        }
+        String lang=langInput==null?"auto":langInput.getText().toString().trim();
+        status("Online Myanmar subtitle translation starting (internet needed)...");
+        MyanmarTranslationClient.translateSrt(this,srtText,lang,new MyanmarTranslationClient.Callback(){
+            @Override public void update(String message){status(message);}
+            @Override public void finished(String translated,String newSrt){
+                srtText=newSrt;
+                if(subtitleInput!=null)subtitleInput.setText(translated);
+                if(srtStatus!=null)srtStatus.setText("Myanmar translated: "+MotionOverlay.parseSrt(srtText).size()+" timed captions");
+                status("Myanmar translated SRT ready. Review captions then Render MP4.");
+            }
+            @Override public void error(String error){status("Translation failed: "+error);}
+        });
     }
     private void confirmSpeechModelDownload(){
         if(SpeechModelStore.ready(this)){status("Whisper model already installed.");return;}
