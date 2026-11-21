@@ -37,6 +37,7 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.effect.OverlayEffect;
+import androidx.media3.effect.TextureOverlay;
 import androidx.media3.effect.Presentation;
 import androidx.media3.common.Effect;
 import androidx.media3.transformer.Composition;
@@ -417,7 +418,7 @@ public final class MainActivity extends Activity {
     private void settingsPage(){
         header("App Settings",false);title("KP Recap Studio","Original Android video creation app");
         panel("VERSION","0.4 alpha • Local media • On-device Whisper • Android 8+");
-        panel("READY TO TEST","Manual timed subtitles, video trimming, aspect ratios, 2D scenes, system TTS and MP4 export.");
+        panel("READY TO TEST","Whisper offline ASR, timed subtitles, 2D animated audience, PDF OCR, studio presets, TTS, and MP4 export (device QA pending).");
         panel("NOT READY","Cloudflare Myanmar backend needs authenticated deployment. Scanned PDF OCR, synchronized dubbing, background rendering and chroma key remain incomplete.");
     }
 
@@ -729,9 +730,13 @@ public final class MainActivity extends Activity {
                 if(duration<=0)throw new IOException("Audio duration unavailable");
                 File image=StageArt.create(this,mode==DHAMMA,selectedImage,title,subtitle,selectedScene);
                 MediaItem visual=new MediaItem.Builder().setUri(Uri.fromFile(image)).setImageDurationMs(duration).build();
+                List<TextureOverlay> animationLayers=new ArrayList<>();
+                animationLayers.add(new MotionOverlay(false,"",null));
+                if(mode==DHAMMA)animationLayers.add(new DhammaAudienceOverlay());
                 EditedMediaItem editedImage=new EditedMediaItem.Builder(visual)
                     .setFrameRate(24)
-                    .setEffects(new Effects(Collections.emptyList(),Collections.singletonList(new OverlayEffect(Collections.singletonList(new MotionOverlay(false,"",null))))))
+                    .setEffects(new Effects(Collections.emptyList(),
+                        Collections.singletonList(new OverlayEffect(animationLayers))))
                     .build();
                 EditedMediaItem audio=new EditedMediaItem.Builder(MediaItem.fromUri(selectedMedia)).build();
                 Composition composition=new Composition.Builder(Arrays.asList(
