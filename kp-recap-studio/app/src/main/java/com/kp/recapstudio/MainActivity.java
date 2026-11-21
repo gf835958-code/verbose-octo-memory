@@ -374,6 +374,7 @@ public final class MainActivity extends Activity {
         progress.setMax(100);gap(exportingPanel,progress,8);
         statusText=text("Ready • Select a file to begin.",12,CYAN,false);gap(exportingPanel,statusText,10);
         action(exportingPanel,"▣  OPEN LAST EXPORTED VIDEO",false,this::openOutput);
+        action(exportingPanel,"▤  SAVE EDITABLE PROJECT",false,this::saveEditableProject);
         panel("FEATURE NOTICE","Offline Whisper recognition works after installing its ~75 MB multilingual model. Myanmar AI translation, PDF OCR and green screen still require additional engines. TTS video replacement needs installed Myanmar voice.");
     }
     private void paintPresetButtons(){
@@ -385,6 +386,17 @@ public final class MainActivity extends Activity {
     private void projects(){
         header("My Projects",false);
         title("Export History","Video files generated during this session.");
+        LinearLayout saved=panel("SAVED PROJECTS","Tap a project to continue editing. Project data is local.");
+        File dir=new File(getFilesDir(),"saved-projects");
+        File[] list=dir.listFiles((folder,name)->name.endsWith(".json"));
+        if(list==null||list.length==0)saved.addView(text("No projects saved yet.",12,MUTED,false));
+        else{
+            Arrays.sort(list,(a,b)->Long.compare(b.lastModified(),a.lastModified()));
+            for(int i=0;i<Math.min(24,list.length);i++){
+                File file=list[i];
+                action(saved,"▤  "+file.getName(),false,()->loadEditableProject(file));
+            }
+        }
         LinearLayout recent=panel("LATEST MP4","Your last exported file, if present.");
         action(recent,"▶  OPEN LAST VIDEO",true,this::openOutput);
         LinearLayout info=panel("GALLERY LOCATION","Movies / KP Recap Studio");
@@ -422,6 +434,55 @@ public final class MainActivity extends Activity {
         panel("NOT READY","Cloudflare Myanmar backend needs authenticated deployment. Scanned PDF OCR, synchronized dubbing, background rendering and chroma key remain incomplete.");
     }
 
+    private void saveEditableProject(){
+        if(selectedMedia==null){toast("Choose a video or audio file first");return;}
+        try {
+            org.json.JSONObject obj=new org.json.JSONObject();
+            obj.put("mode",mode);
+            obj.put("media",selectedMedia.toString());
+            obj.put("image",selectedImage==null?"":selectedImage.toString());
+            obj.put("name",selectedFileName);
+            obj.put("scene",selectedScene);
+            obj.put("title",titleInput==null?"":titleInput.getText().toString());
+            obj.put("subtitle",subtitleInput==null?"":subtitleInput.getText().toString());
+            obj.put("srt",srtText);
+            obj.put("start",startSecondsInput==null?"":startSecondsInput.getText().toString());
+            obj.put("end",endSecondsInput==null?"":endSecondsInput.getText().toString());
+            obj.put("ratio",ratioSpinner==null?0:ratioSpinner.getSelectedItemPosition());
+            obj.put("crop",cropCheck!=null&&cropCheck.isChecked());
+            File dir=new File(getFilesDir(),"saved-projects");if(!dir.exists())dir.mkdirs();
+            File item=new File(dir,"KP-Project-"+System.currentTimeMillis()+".json");
+            try(java.io.FileOutputStream out=new java.io.FileOutputStream(item)){
+                out.write(obj.toString(2).getBytes(StandardCharsets.UTF_8));
+            }
+            status("Project saved locally. Reopen from Projects tab.");
+        }catch(Exception e){status("Project save failed: "+e.getMessage());}
+    }
+    private void loadEditableProject(File item){
+        try{
+            byte[] bytes=java.nio.file.Files.readAllBytes(item.toPath());
+            if(bytes.length>4_000_000)throw new IOException("Project too large");
+            org.json.JSONObject obj=new org.json.JSONObject(new String(bytes,StandardCharsets.UTF_8));
+            String media=obj.getString("media");
+            selectedMedia=Uri.parse(media);
+            String image=obj.optString("image","");
+            selectedImage=image.isEmpty()?null:Uri.parse(image);
+            selectedFileName=obj.optString("name","");
+            mode=obj.optInt("mode",VIDEO);
+            if(mode<VIDEO||mode>DHAMMA)mode=VIDEO;
+            selectedScene=obj.optInt("scene",0);
+            srtText=obj.optString("srt","");
+            screen=1;root();
+            if(titleInput!=null)titleInput.setText(obj.optString("title",""));
+            if(subtitleInput!=null)subtitleInput.setText(obj.optString("subtitle",""));
+            if(startSecondsInput!=null)startSecondsInput.setText(obj.optString("start",""));
+            if(endSecondsInput!=null)endSecondsInput.setText(obj.optString("end",""));
+            if(ratioSpinner!=null)ratioSpinner.setSelection(obj.optInt("ratio",0));
+            if(cropCheck!=null)cropCheck.setChecked(obj.optBoolean("crop",false));
+            if(srtStatus!=null)srtStatus.setText("Restored "+MotionOverlay.parseSrt(srtText).size()+" timed captions");
+            status("Project restored. Confirm file is still accessible before rendering.");
+        }catch(Exception e){toast("Cannot open project: "+e.getMessage());}
+    }
     private void pick(int request,String mime){
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
