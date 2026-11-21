@@ -79,6 +79,8 @@ public final class MainActivity extends Activity {
     private TextView statusText, fileText, srtStatus;
     private ProgressBar progress;
     private Button exportButton;
+    private File narrationFile;
+    private CheckBox useVoiceoverCheck;
     private Spinner ratioSpinner;
     private CheckBox cropCheck;
     private LinearLayout body;
@@ -90,6 +92,7 @@ public final class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         buildScreen();
+        if("audiobook".equals(getIntent().getStringExtra("open_mode"))) openEditor(1);
         tts=new TextToSpeech(this, result -> {
             if(result!=TextToSpeech.SUCCESS) runOnUiThread(()->toast("System TTS unavailable on this phone"));
         });
@@ -219,6 +222,10 @@ public final class MainActivity extends Activity {
         LinearLayout c=row();
         tile(c,"CC","Subtitle Tools","Timed captions",0xFF30579A,()->openEditor(0));
         tile(c,"◷","Export History","Watch saved videos",0xFF613E94,()->go(2));
+        pad(body,12);
+        LinearLayout pdf=row();
+        tile(pdf,"▤","PDF Book Studio","PDF → Myanmar PDF",0xFF1B6287,this::openPdfStudio);
+        tile(pdf,"♫","PDF Audiobook","PDF → Voice WAV",0xFF7242A0,this::openPdfStudio);
         pad(body,16);
         LinearLayout note=panel("TEST VERSION", "Offline-first manual editor. Automatic AI translation and smart dubbing are not available in this build.");
         note.addView(text("No account • No subscription • Android 8+",12,CYAN,false));
@@ -330,7 +337,10 @@ public final class MainActivity extends Activity {
             gap(caption,srtStatus,8);
             action(caption,"🎙  DICTATE SCRIPT",false,this::dictate);
             action(caption,"♫  GENERATE SYSTEM TTS FILE",false,this::synthesizeVoice);
-            caption.addView(text("TTS creates a separate voice file, not automatic dubbing. Voice availability depends on Android.",11,MUTED,false));
+            useVoiceoverCheck=new CheckBox(this);
+            useVoiceoverCheck.setText("Replace video audio with the generated voice in MP4");
+            useVoiceoverCheck.setTextColor(WHITE);gap(caption,useVoiceoverCheck,8);
+            caption.addView(text("TTS depends on installed Android Myanmar voices. Generate a voice before enabling MP4 replacement.",11,MUTED,false));
         }
         LinearLayout exportingPanel=panel("RENDER / EXPORT","MP4 (H.264/AAC) → Movies/KP Recap Studio");
         exportButton=addButton(exportingPanel,"▶   RENDER & SAVE MP4",this::export);
@@ -342,7 +352,7 @@ public final class MainActivity extends Activity {
         progress.setMax(100);gap(exportingPanel,progress,8);
         statusText=text("Ready • Select a file to begin.",12,CYAN,false);gap(exportingPanel,statusText,10);
         action(exportingPanel,"▣  OPEN LAST EXPORTED VIDEO",false,this::openOutput);
-        panel("FEATURE NOTICE","Automatic ASR, cloud/AI translation, replacement dubbing, green screen and PDF conversion are not in this test build.");
+        panel("FEATURE NOTICE","Automatic video ASR, Myanmar AI translation, scanned-PDF OCR and green screen are not ready. TTS video replacement requires an installed Myanmar voice.");
     }
     private void paintPresetButtons(){
         if(presetButtons==null)return;
@@ -358,19 +368,25 @@ public final class MainActivity extends Activity {
         LinearLayout info=panel("GALLERY LOCATION","Movies / KP Recap Studio");
         info.addView(text("Use your phone's Gallery or Files app to browse all exports.",12,MUTED,false));
     }
+    private void openPdfStudio(){
+        if(exporting){toast("Finish rendering first");return;}
+        startActivity(new Intent(this,PdfStudioActivity.class));
+    }
     private void toolsPage(){
         header("Studio Tools",false);title("Tools","Select a working editor.");
         LinearLayout tools=panel("WORKING TOOLS","Video editor, audio studio, SRT captions, MP4 export.");
         action(tools,"▣  VIDEO & SRT TOOLS",true,()->openEditor(0));
         action(tools,"♫  AUDIOBOOK VIDEO",false,()->openEditor(1));
         action(tools,"✿  DHAMMA STAGE",false,()->openEditor(2));
-        panel("COMING LATER","AI automatic translation, video transcription, smart voice dubbing, PDF import.");
+        LinearLayout pdf=panel("PDF BOOK TOOLS","Extract PDF text, edit Myanmar PDF, and create audiobook WAV.");
+        action(pdf,"▤  OPEN PDF BOOK STUDIO",true,this::openPdfStudio);
+        panel("COMING LATER","Automatic Myanmar AI translation, speech-to-text and chroma key.");
     }
     private void settingsPage(){
         header("App Settings",false);title("KP Recap Studio","Original Android video creation app");
-        panel("VERSION","0.2 UI preview • Local media • No login • Android 8+");
+        panel("VERSION","0.3 alpha • Local media • No login • Android 8+");
         panel("READY TO TEST","Manual timed subtitles, video trimming, aspect ratios, 2D scenes, system TTS and MP4 export.");
-        panel("NOT READY","AI Myanmar translation, video-to-text, chroma key, PDF translation and voiceover audio replacement.");
+        panel("NOT READY","AI Myanmar auto-translation, video-to-text, scanned-PDF OCR and chroma key.");
     }
 
     private void pick(int request,String mime){
@@ -439,9 +455,13 @@ public final class MainActivity extends Activity {
         File output=new File(getExternalFilesDir(Environment.DIRECTORY_MUSIC),"kp-voice-"+System.currentTimeMillis()+".wav");
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener(){
             @Override public void onStart(String utteranceId){runOnUiThread(()->status("Synthesizing voice..."));}
-            @Override public void onDone(String utteranceId){runOnUiThread(()->status("Voice created: "+output.getAbsolutePath()));}
+            @Override public void onDone(String utteranceId){runOnUiThread(()->{
+                narrationFile=output;
+                status("Narration ready. Enable 'Replace video audio' then Render MP4.");
+            });}
             @Override public void onError(String utteranceId){runOnUiThread(()->status("System TTS synthesis failed"));}
         });
+        narrationFile=null;
         int result=tts.synthesizeToFile(content,new Bundle(),output,"KPVoice");
         if(result!=TextToSpeech.SUCCESS)status("TTS engine rejected request.");
     }
@@ -497,10 +517,22 @@ public final class MainActivity extends Activity {
                             cropCheck.isChecked()?Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP:Presentation.LAYOUT_SCALE_TO_FIT));
                 }
                 videoEffects.add(new OverlayEffect(Collections.singletonList(overlay)));
-                EditedMediaItem edited=new EditedMediaItem.Builder(builder.build())
-                    .setEffects(new Effects(Collections.emptyList(),videoEffects))
-                    .build();
-                transformer.start(edited,exportFile.getAbsolutePath());
+                boolean dubbing=useVoiceoverCheck!=null&&useVoiceoverCheck.isChecked();
+                if(dubbing && (narrationFile==null||!narrationFile.isFile()))
+                    throw new IOException("Generate TTS voice before enabling audio replacement.");
+                EditedMediaItem.Builder media=new EditedMediaItem.Builder(builder.build())
+                    .setEffects(new Effects(Collections.emptyList(),videoEffects));
+                if(dubbing)media.setRemoveAudio(true);
+                EditedMediaItem edited=media.build();
+                if(dubbing){
+                    EditedMediaItem narration=new EditedMediaItem.Builder(
+                        MediaItem.fromUri(Uri.fromFile(narrationFile))).build();
+                    Composition dubbed=new Composition.Builder(Arrays.asList(
+                        EditedMediaItemSequence.withVideoFrom(Collections.singletonList(edited)),
+                        EditedMediaItemSequence.withAudioFrom(Collections.singletonList(narration))))
+                        .build();
+                    transformer.start(dubbed,exportFile.getAbsolutePath());
+                }else transformer.start(edited,exportFile.getAbsolutePath());
             }else{
                 long duration=readDurationMs(selectedMedia);
                 if(duration<=0)throw new IOException("Audio duration unavailable");
