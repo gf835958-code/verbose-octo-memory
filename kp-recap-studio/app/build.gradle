@@ -1,4 +1,4 @@
-plugins { id 'com.android.application' }
+plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
 
 android {
     namespace 'com.kp.recapstudio'
@@ -7,13 +7,14 @@ android {
         applicationId 'com.kp.recapstudio'
         minSdk 26
         targetSdk 35
-        versionCode 3
-        versionName '0.3.0-alpha'
+        versionCode 4
+        versionName '0.4.0-alpha'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+    kotlinOptions { jvmTarget = '17' }
     buildTypes { release { minifyEnabled false } }
 }
 
@@ -21,4 +22,6 @@ dependencies {
     implementation 'androidx.media3:media3-transformer:1.11.1'
     implementation 'androidx.media3:media3-effect:1.11.1'
     implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
+    implementation 'dev.ffmpegkit-maintained:whisper-android:1.0.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
 }
