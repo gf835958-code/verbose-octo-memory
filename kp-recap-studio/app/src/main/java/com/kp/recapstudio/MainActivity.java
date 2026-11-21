@@ -99,6 +99,8 @@ public final class MainActivity extends Activity {
     private int screen=0;  // 0 dashboard, 1 editor, 2 projects, 3 tools, 4 settings
     private android.widget.ImageView mediaPreview;
     private TextView previewHint;
+    private int selectedScene=0;
+    private TextView[] presetButtons;
 
     private android.graphics.drawable.GradientDrawable gradient(int start,int end,int stroke,int radius){
         android.graphics.drawable.GradientDrawable d=new android.graphics.drawable.GradientDrawable(
@@ -222,7 +224,7 @@ public final class MainActivity extends Activity {
         note.addView(text("No account • No subscription • Android 8+",12,CYAN,false));
     }
     private void openEditor(int newMode){
-        if(mode!=newMode){selectedMedia=null;selectedImage=null;selectedFileName="";srtText="";}
+        if(mode!=newMode){selectedMedia=null;selectedImage=null;selectedFileName="";srtText="";selectedScene=0;}
         mode=newMode;screen=1;root();
     }
     private void preview(){
@@ -243,7 +245,7 @@ public final class MainActivity extends Activity {
         if(mediaPreview==null)return;
         if(mode!=0){
             try{
-                File image=StageArt.create(this,mode==2,selectedImage,"","");
+                File image=StageArt.create(this,mode==2,selectedImage,"","",selectedScene);
                 android.graphics.BitmapFactory.Options o=new android.graphics.BitmapFactory.Options();o.inSampleSize=2;
                 mediaPreview.setImageBitmap(android.graphics.BitmapFactory.decodeFile(image.getAbsolutePath(),o));
             }catch(Exception ignored){}
@@ -299,7 +301,24 @@ public final class MainActivity extends Activity {
             LinearLayout studio=panel(mode==1?"AUDIOBOOK STUDIO":"DHAMMA STAGE","Live illustrated preview. Add your own background image if desired.");
             studio.addView(text(mode==1?"✦ Original narrator, desk & studio scene":"✿ Original stage, trees & 50 audience figures",13,CYAN,true));
             pad(studio,8);
-            studio.addView(text("The waveform is decorative animation; it is not yet audio-reactive.",11,MUTED,false));
+            studio.addView(text("Choose a look for your exported video:",12,MUTED,false));
+            pad(studio,9);
+            LinearLayout presets=new LinearLayout(this);studio.addView(presets);
+            String[] names=mode==1?new String[]{"Classic","Violet","Cyan","Royal"}:
+                new String[]{"Forest","Sunset","Evening","Golden"};
+            presetButtons=new TextView[4];
+            for(int i=0;i<4;i++){
+                final int selected=i;
+                TextView b=text(names[i],11,WHITE,true);b.setGravity(Gravity.CENTER);
+                b.setPadding(dp(2),dp(13),dp(2),dp(13));
+                LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);
+                lp.leftMargin=dp(3);lp.rightMargin=dp(3);
+                presets.addView(b,lp);presetButtons[i]=b;
+                b.setOnClickListener(v->{selectedScene=selected;paintPresetButtons();refreshPreview();});
+            }
+            paintPresetButtons();
+            pad(studio,9);
+            studio.addView(text("Waveform animation is decorative, not yet audio-reactive.",11,MUTED,false));
         }
         LinearLayout caption=panel("TITLE & SUBTITLES","Myanmar Unicode supported.");
         titleInput=edit("Title / ခေါင်းစဉ်",false);gap(caption,titleInput,9);
@@ -324,6 +343,12 @@ public final class MainActivity extends Activity {
         statusText=text("Ready • Select a file to begin.",12,CYAN,false);gap(exportingPanel,statusText,10);
         action(exportingPanel,"▣  OPEN LAST EXPORTED VIDEO",false,this::openOutput);
         panel("FEATURE NOTICE","Automatic ASR, cloud/AI translation, replacement dubbing, green screen and PDF conversion are not in this test build.");
+    }
+    private void paintPresetButtons(){
+        if(presetButtons==null)return;
+        for(int i=0;i<4;i++)presetButtons[i].setBackground(
+            i==selectedScene?gradient(0xFF8044E8,0xFF167AD2,0xFF76EAE1,10):
+                gradient(0xFF21355F,0xFF182648,0xFF40577E,10));
     }
     private void projects(){
         header("My Projects",false);
@@ -479,7 +504,7 @@ public final class MainActivity extends Activity {
             }else{
                 long duration=readDurationMs(selectedMedia);
                 if(duration<=0)throw new IOException("Audio duration unavailable");
-                File image=StageArt.create(this,mode==DHAMMA,selectedImage,title,subtitle);
+                File image=StageArt.create(this,mode==DHAMMA,selectedImage,title,subtitle,selectedScene);
                 MediaItem visual=new MediaItem.Builder().setUri(Uri.fromFile(image)).setImageDurationMs(duration).build();
                 EditedMediaItem editedImage=new EditedMediaItem.Builder(visual)
                     .setFrameRate(24)
