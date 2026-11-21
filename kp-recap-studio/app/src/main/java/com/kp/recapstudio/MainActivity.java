@@ -67,11 +67,11 @@ import java.util.Locale;
  */
 @UnstableApi
 public final class MainActivity extends Activity {
-    private static final int PICK_MEDIA=101, PICK_IMAGE=102, PICK_SRT=103, VOICE_DICTATION=104, PICK_WHISPER_MODEL=105, SAVE_SRT=106;
+    private static final int PICK_MEDIA=101, PICK_IMAGE=102, PICK_SRT=103, VOICE_DICTATION=104, PICK_WHISPER_MODEL=105, SAVE_SRT=106, PICK_PRESENTER=107;
     private static final int VIDEO=0, AUDIOBOOK=1, DHAMMA=2;
     private static final int BG=0xFF080E21, PANEL=0xFF172242, CYAN=0xFF45E5D4, WHITE=Color.WHITE, MUTED=0xFFABBDDB;
     private int mode=VIDEO;
-    private Uri selectedMedia, selectedImage, lastSavedUri;
+    private Uri selectedMedia, selectedImage, selectedPresenter, lastSavedUri;
     private String selectedFileName="", srtText="";
     private final Handler handler=new Handler(Looper.getMainLooper());
     private Transformer transformer;
@@ -246,7 +246,7 @@ public final class MainActivity extends Activity {
         note.addView(text("No account • No subscription • Android 8+",12,CYAN,false));
     }
     private void openEditor(int newMode){
-        if(mode!=newMode){selectedMedia=null;selectedImage=null;selectedFileName="";srtText="";selectedScene=0;}
+        if(mode!=newMode){selectedMedia=null;selectedImage=null;selectedPresenter=null;selectedFileName="";srtText="";selectedScene=0;waveformLevels=null;}
         mode=newMode;screen=1;root();
     }
     private void preview(){
@@ -267,7 +267,7 @@ public final class MainActivity extends Activity {
         if(mediaPreview==null)return;
         if(mode!=0){
             try{
-                File image=StageArt.create(this,mode==2,selectedImage,"","",selectedScene);
+                File image=StageArt.create(this,mode==2,selectedImage,"","",selectedScene,selectedPresenter);
                 android.graphics.BitmapFactory.Options o=new android.graphics.BitmapFactory.Options();o.inSampleSize=2;
                 mediaPreview.setImageBitmap(android.graphics.BitmapFactory.decodeFile(image.getAbsolutePath(),o));
             }catch(Exception ignored){}
@@ -302,6 +302,8 @@ public final class MainActivity extends Activity {
         media.addView(fileText);pad(media,7);
         if(mode!=0){
             action(media,"▤  CHOOSE STUDIO BACKGROUND",false,()->pick(PICK_IMAGE,"image/*"));
+            action(media,"◉  ADD PRESENTER PHOTO (GREEN SCREEN PNG/JPG)",false,()->pick(PICK_PRESENTER,"image/*"));
+            media.addView(text("Photo chroma key supported; moving green-screen video presenter is not yet supported.",11,MUTED,false));
         }
         if(mode==0){
             LinearLayout ratio=panel("VIDEO SETTINGS","Choose ratio and Fit or Fill/Crop for your export.");
@@ -443,6 +445,7 @@ public final class MainActivity extends Activity {
             obj.put("mode",mode);
             obj.put("media",selectedMedia.toString());
             obj.put("image",selectedImage==null?"":selectedImage.toString());
+            obj.put("presenter",selectedPresenter==null?"":selectedPresenter.toString());
             obj.put("name",selectedFileName);
             obj.put("scene",selectedScene);
             obj.put("title",titleInput==null?"":titleInput.getText().toString());
@@ -469,6 +472,8 @@ public final class MainActivity extends Activity {
             selectedMedia=Uri.parse(media);
             String image=obj.optString("image","");
             selectedImage=image.isEmpty()?null:Uri.parse(image);
+            String presenter=obj.optString("presenter","");
+            selectedPresenter=presenter.isEmpty()?null:Uri.parse(presenter);
             selectedFileName=obj.optString("name","");
             mode=obj.optInt("mode",VIDEO);
             if(mode<VIDEO||mode>DHAMMA)mode=VIDEO;
@@ -528,6 +533,8 @@ public final class MainActivity extends Activity {
             status("Input selected. You can render now.");
         }else if(request==PICK_IMAGE){
             selectedImage=uri;status("Custom background selected.");refreshPreview();
+        }else if(request==PICK_PRESENTER){
+            selectedPresenter=uri;status("Presenter image selected. Green background will be keyed out.");refreshPreview();
         }else if(request==PICK_SRT){
             try(InputStream in=getContentResolver().openInputStream(uri)){
                 if(in==null)throw new IOException("Unable to read SRT");
@@ -793,7 +800,7 @@ public final class MainActivity extends Activity {
             }else{
                 long duration=readDurationMs(selectedMedia);
                 if(duration<=0)throw new IOException("Audio duration unavailable");
-                File image=StageArt.create(this,mode==DHAMMA,selectedImage,title,subtitle,selectedScene);
+                File image=StageArt.create(this,mode==DHAMMA,selectedImage,title,subtitle,selectedScene,selectedPresenter);
                 MediaItem visual=new MediaItem.Builder().setUri(Uri.fromFile(image)).setImageDurationMs(duration).build();
                 List<TextureOverlay> animationLayers=new ArrayList<>();
                 animationLayers.add(new MotionOverlay(false,"",null,waveformLevels));
