@@ -1,0 +1,15 @@
+name: KP Recap CI Runner Test
+on:
+  push:
+    branches: [feat/kp-recap-ci-check]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  simple:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check runner only
+        run: |
+          echo "KP Recap CI runner is running"
+          uname -a
