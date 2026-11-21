@@ -15,7 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** Frame-timed captions; in Audio Hub mode an animated decorative visualizer. */
+/** Frame-timed subtitles; in Audio Hub mode an audio-reactive visualizer when PCM energy is available. */
 @UnstableApi
 final class MotionOverlay extends CanvasOverlay {
     static final class Cue {
@@ -26,13 +26,18 @@ final class MotionOverlay extends CanvasOverlay {
     private final boolean videoMode;
     private final String text;
     private final List<Cue> cues;
+    private final float[] audioLevels;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     MotionOverlay(boolean videoMode, String caption, List<Cue> cues) {
+        this(videoMode,caption,cues,null);
+    }
+    MotionOverlay(boolean videoMode, String caption, List<Cue> cues,float[] audioLevels) {
         super(true);
         this.videoMode=videoMode;
         this.text=caption == null ? "" : caption.trim();
         this.cues=cues == null ? new ArrayList<>() : cues;
+        this.audioLevels=audioLevels;
     }
 
     @Override public void onDraw(Canvas canvas, long presentationTimeUs) {
@@ -50,14 +55,22 @@ final class MotionOverlay extends CanvasOverlay {
                 drawText(canvas,current,(int)(w*.09f),(int)(h*.81f),(int)(w*.82f),Math.max(22,(int)(h*.047f)),Color.WHITE);
             }
         } else {
-            // These bars intentionally animate from timestamps; they are NOT audio-reactive yet.
+            // Uses actual decoded PCM RMS levels when analyzed; otherwise a visual fallback.
             float centerY=h*.89f, centerX=w/2f;
             int count=72;
             float areaWidth=w*.75f, barSpace=areaWidth/count;
             double sec=presentationTimeUs/1_000_000.0;
             for(int i=0;i<count;i++) {
                 float phase=(float)(i*.29+sec*4.2);
-                float amplitude=(float)(.20+.8*Math.abs(Math.sin(phase)*Math.cos(phase*.32+sec)));
+                float amplitude;
+                if(audioLevels!=null && audioLevels.length>0){
+                    int index=(int)Math.max(0,Math.min(audioLevels.length-1,Math.floor(sec*10)));
+                    float energy=audioLevels[index];
+                    float variation=(float)(.32+.68*Math.abs(Math.sin(phase)*Math.cos(phase*.25)));
+                    amplitude=Math.max(.03f,energy*variation);
+                }else{
+                    amplitude=(float)(.12+.44*Math.abs(Math.sin(phase)*Math.cos(phase*.32+sec)));
+                }
                 float barHeight=h*.105f*amplitude;
                 paint.setColor((i%4==0)?0xFFB989FE:0xFF54F6DD);
                 float x=centerX-areaWidth/2+i*barSpace;
