@@ -44,7 +44,7 @@ import java.util.Locale;
 public final class PdfStudioActivity extends Activity {
     private static final int PICK_PDF=301, SAVE_PDF=302;
     private static final int BG=0xFF080E21, PANEL=0xFF172242, CYAN=0xFF54E8D9;
-    private EditText sourceText, myanmarText, titleText, languageInput;
+    private EditText sourceText, myanmarText, titleText, languageInput, ocrLanguage;
     private TextView status;
     private Uri pdfUri;
     private Uri audiobookUri;
@@ -67,12 +67,43 @@ public final class PdfStudioActivity extends Activity {
         scroll.addView(col);setContentView(scroll);
         col.addView(label("‹    KP RECAP • PDF STUDIO",23,Color.WHITE));
         col.addView(label("PDF → Text → Myanmar PDF / Audiobook",15,CYAN));
-        col.addView(label("Selectable-text PDFs supported. Online translation requires owner-hosted server; OCR for scanned PDF is not yet enabled.",13,0xFFE1D08D));
+        col.addView(label("Selectable PDF text or scanned-page OCR (download language data). Online Myanmar translation needs owner-hosted Worker; review results before export.",13,0xFFE1D08D));
         button(col,"1. SELECT PDF BOOK",()->{
             Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("application/pdf");
             startActivityForResult(intent,PICK_PDF);
+        });
+        col.addView(label("SCANNED PDF OCR — optional offline model",14,CYAN));
+        col.addView(label("OCR language model code: eng (English), mya (Myanmar), tha (Thai), etc.",12,0xFFCCD8EE));
+        ocrLanguage=input("eng / mya / tha / jpn / chi_sim",1);
+        ocrLanguage.setText("eng");col.addView(ocrLanguage);
+        button(col,"⬇  DOWNLOAD OCR LANGUAGE DATA",()->{
+            String lang=ocrLanguage.getText().toString().trim();
+            new android.app.AlertDialog.Builder(this)
+                .setTitle("Download OCR Language Model")
+                .setMessage("Download the free Tesseract "+lang+" model? Mobile data may be used. After downloading, OCR runs offline.")
+                .setNegativeButton("Cancel",null)
+                .setPositiveButton("Download",(dialog,which)->PdfOcrEngine.downloadLanguage(
+                    this,lang,new PdfOcrEngine.Callback(){
+                        public void message(String detail){show(detail);}
+                        public void ready(String text){show(text);}
+                        public void failed(String problem){show("OCR download error: "+problem);}
+                    })).show();
+        });
+        button(col,"◉  OCR SCANNED PDF → EXTRACT ORIGINAL TEXT",()->{
+            if(pdfUri==null){show("Select a PDF first.");return;}
+            String lang=ocrLanguage.getText().toString().trim();
+            PdfOcrEngine.readScannedPdf(this,pdfUri,lang,new PdfOcrEngine.Callback(){
+                @Override public void message(String progress){show(progress);}
+                @Override public void ready(String content){
+                    ui.post(()->{
+                        sourceText.setText(content);
+                        show("Scanned PDF OCR complete. Review source text before translation.");
+                    });
+                }
+                @Override public void failed(String problem){show("OCR failed: "+problem);}
+            });
         });
         col.addView(label("Book title",14,CYAN));
         titleText=input("စာအုပ်အမည် / Book title",1);col.addView(titleText);
