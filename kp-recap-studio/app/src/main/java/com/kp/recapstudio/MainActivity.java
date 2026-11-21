@@ -92,7 +92,15 @@ public final class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         buildScreen();
-        if("audiobook".equals(getIntent().getStringExtra("open_mode"))) openEditor(1);
+        if("audiobook".equals(getIntent().getStringExtra("open_mode"))){
+            openEditor(1);
+            Uri incoming=getIntent().getData();
+            if(incoming!=null){
+                selectedMedia=incoming;
+                selectedFileName="KP PDF Audiobook voice.wav";
+                root();
+            }
+        }
         tts=new TextToSpeech(this, result -> {
             if(result!=TextToSpeech.SUCCESS) runOnUiThread(()->toast("System TTS unavailable on this phone"));
         });
