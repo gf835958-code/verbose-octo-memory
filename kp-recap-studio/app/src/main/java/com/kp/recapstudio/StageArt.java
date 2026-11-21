@@ -28,6 +28,9 @@ final class StageArt {
         return create(context,dhamma,customBackground,title,subtitle,0);
     }
     static File create(Context context, boolean dhamma, Uri customBackground, String title, String subtitle, int sceneStyle) throws Exception {
+        return create(context,dhamma,customBackground,title,subtitle,sceneStyle,null);
+    }
+    static File create(Context context, boolean dhamma, Uri customBackground, String title, String subtitle, int sceneStyle, Uri presenter) throws Exception {
         int style=Math.max(0,Math.min(3,sceneStyle));
         Bitmap bitmap = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bitmap);
@@ -49,6 +52,7 @@ final class StageArt {
         } else {
             drawStudio(c,p,style);
         }
+        if(presenter!=null) drawPresenter(context,c,p,presenter,dhamma);
         if(style>0){
             int[] wash={0,0x3F6755EA,0x3828DAD1,0x43B08A3B};
             p.setColor(wash[style]);c.drawRect(0,0,W,H,p);
@@ -63,6 +67,40 @@ final class StageArt {
         }
         bitmap.recycle();
         return file;
+    }
+
+    private static void drawPresenter(Context context,Canvas canvas,Paint pen,Uri presenter,boolean dhamma)throws Exception{
+        Bitmap original;
+        BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;
+        try(InputStream in=context.getContentResolver().openInputStream(presenter)){
+            BitmapFactory.decodeStream(in,null,bounds);
+        }
+        int sample=1;
+        while(bounds.outWidth/sample>900||bounds.outHeight/sample>900)sample*=2;
+        BitmapFactory.Options cfg=new BitmapFactory.Options();
+        cfg.inSampleSize=sample;cfg.inPreferredConfig=Bitmap.Config.ARGB_8888;
+        try(InputStream in=context.getContentResolver().openInputStream(presenter)){
+            original=BitmapFactory.decodeStream(in,null,cfg);
+        }
+        if(original==null)throw new Exception("Presenter image cannot be decoded");
+        int w=original.getWidth(),h=original.getHeight();
+        if((long)w*h>3_000_000)throw new Exception("Presenter image too large");
+        Bitmap keyed=original.copy(Bitmap.Config.ARGB_8888,true);
+        int[] colors=new int[w*h];
+        keyed.getPixels(colors,0,w,0,0,w,h);
+        for(int i=0;i<colors.length;i++){
+            int argb=colors[i],red=Color.red(argb),green=Color.green(argb),blue=Color.blue(argb);
+            if(green>70 && green>red*1.30f && green>blue*1.26f){
+                int strength=Math.min(255,Math.round((green-Math.max(red,blue)*1.20f)*4.2f));
+                int alpha=Color.alpha(argb)*(255-strength)/255;
+                colors[i]=(argb&0x00FFFFFF)|(alpha<<24);
+            }
+        }
+        keyed.setPixels(colors,0,w,0,0,w,h);
+        RectF dest=dhamma?new RectF(492,246,748,506):new RectF(445,232,775,640);
+        pen.setColor(Color.WHITE);
+        canvas.drawBitmap(keyed,null,dest,pen);
+        keyed.recycle();original.recycle();
     }
 
     private static void drawStudio(Canvas c, Paint p, int style) {
