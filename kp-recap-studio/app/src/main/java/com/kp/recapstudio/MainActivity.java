@@ -363,6 +363,7 @@ public final class MainActivity extends Activity {
             action(caption,"🌐  TRANSLATE SRT → MYANMAR (ONLINE)",false,this::translateWhisperSrt);
             action(caption,"🎙  DICTATE SCRIPT",false,this::dictate);
             action(caption,"♫  GENERATE SYSTEM TTS FILE",false,this::synthesizeVoice);
+            action(caption,"◷  GENERATE TIMED DUB FROM SUBTITLES",true,this::synthesizeTimedVoice);
             useVoiceoverCheck=new CheckBox(this);
             useVoiceoverCheck.setText("Replace video audio with the generated voice in MP4");
             useVoiceoverCheck.setTextColor(WHITE);gap(caption,useVoiceoverCheck,8);
@@ -433,7 +434,7 @@ public final class MainActivity extends Activity {
     }
     private void settingsPage(){
         header("App Settings",false);title("KP Recap Studio","Original Android video creation app");
-        panel("VERSION","0.4 alpha • Local media • On-device Whisper • Android 8+");
+        panel("VERSION","0.5 alpha • Timed SRT dubbing • Offline Whisper • Android 8+");
         panel("READY TO TEST","Whisper offline ASR, timed subtitles, 2D animated audience, PDF OCR, studio presets, TTS, and MP4 export (device QA pending).");
         panel("NOT READY","Cloudflare Myanmar backend needs authenticated deployment. Scanned PDF OCR, synchronized dubbing, background rendering and chroma key remain incomplete.");
     }
@@ -604,7 +605,7 @@ public final class MainActivity extends Activity {
                 if(srtStatus!=null)srtStatus.setText("Myanmar translated: "+MotionOverlay.parseSrt(srtText).size()+" timed captions");
                 if(autoMyanmarFlow){
                     status("Myanmar translation complete; generating voice...");
-                    synthesizeVoice();
+                    synthesizeTimedVoice();
                 }else status("Myanmar translated SRT ready. Review captions then Render MP4.");
             }
             @Override public void error(String error){autoMyanmarFlow=false;status("Translation failed: "+error);}
@@ -665,6 +666,43 @@ public final class MainActivity extends Activity {
             start=end;
         }
         return segments;
+    }
+    /** Build a full video-length voice WAV with silence and each line at its SRT start. */
+    private void synthesizeTimedVoice(){
+        if(ttsWorking){status("Wait for current voice job");return;}
+        if(selectedMedia==null){autoMyanmarFlow=false;status("Select video first");return;}
+        List<MotionOverlay.Cue> cues=MotionOverlay.parseSrt(srtText);
+        if(cues.isEmpty()){autoMyanmarFlow=false;status("Transcribe or translate SRT first");return;}
+        if(tts==null){autoMyanmarFlow=false;status("Android TTS unavailable");return;}
+        int language=tts.setLanguage(new Locale("my","MM"));
+        if(language==TextToSpeech.LANG_MISSING_DATA||language==TextToSpeech.LANG_NOT_SUPPORTED){
+            autoMyanmarFlow=false;status("Myanmar TTS voice not installed");return;
+        }
+        long startMs=0,durationMs;
+        try {
+            long mediaMs=readDurationMs(selectedMedia);
+            if(startSecondsInput!=null)startMs=Math.max(0,(long)(parseFloat(startSecondsInput.getText().toString())*1000));
+            long endMs=endSecondsInput==null?0:(long)(parseFloat(endSecondsInput.getText().toString())*1000);
+            if(mediaMs<=startMs)throw new IOException("Trim start exceeds video length");
+            durationMs=endMs>startMs?Math.min(mediaMs,endMs)-startMs:mediaMs-startMs;
+        }catch(Exception e){autoMyanmarFlow=false;status("Duration error: "+e.getMessage());return;}
+        ttsWorking=true;narrationFile=null;
+        status("Synthesizing timed voice for "+cues.size()+" captions...");
+        TimedDubber.create(this,tts,cues,durationMs,startMs,new TimedDubber.Listener(){
+            @Override public void progress(String value){status(value);}
+            @Override public void done(File wav){
+                narrationFile=wav;ttsWorking=false;
+                if(useVoiceoverCheck!=null)useVoiceoverCheck.setChecked(true);
+                if(autoMyanmarFlow){
+                    status("Synced narration ready; exporting MP4...");
+                    export();
+                }else status("Synced narration ready. Render MP4 to save.");
+            }
+            @Override public void error(String problem){
+                ttsWorking=false;autoMyanmarFlow=false;
+                status("Timed dubbing failed: "+problem);
+            }
+        });
     }
     private void synthesizeVoice(){
         if(ttsWorking){status("Voice synthesis already running.");return;}
