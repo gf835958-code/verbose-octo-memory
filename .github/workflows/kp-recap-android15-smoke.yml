@@ -1,0 +1,62 @@
+name: KP Recap Studio Android 15 Smoke Test
+
+on:
+  push:
+    branches: [feat/kp-recap-ci-check]
+    paths:
+      - 'kp-recap-studio/**'
+      - '.github/workflows/kp-recap-android15-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+jobs:
+  emulator-smoke:
+    name: Android 15 emulator launch check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK
+        uses: android-actions/setup-android@v4.0.4
+        with:
+          packages: 'platform-tools'
+      - name: Install build tools and platform
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Build installable APK
+        working-directory: kp-recap-studio
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Enable KVM for Android Emulator
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Launch Android 15 emulator and open Dashboard
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          target: default
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          script: |
+            adb install -r kp-recap-studio/app/build/outputs/apk/debug/app-debug.apk
+            adb logcat -c
+            adb shell am start -W -n com.kp.recapstudio/.MainActivity
+            sleep 8
+            adb shell pidof com.kp.recapstudio
+            adb shell dumpsys activity activities | grep -m 1 com.kp.recapstudio
+            if adb logcat -d -s AndroidRuntime:E | grep -A15 -F 'FATAL EXCEPTION' | grep -F 'com.kp.recapstudio'; then
+              echo 'Detected KP Recap Studio startup crash'
+              exit 1
+            fi
+            echo 'Android 15 emulator startup smoke PASS'
