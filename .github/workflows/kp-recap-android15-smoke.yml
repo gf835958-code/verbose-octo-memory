@@ -6,6 +6,11 @@ on:
     paths:
       - 'kp-recap-studio/**'
       - '.github/workflows/kp-recap-android15-smoke.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'kp-recap-studio/**'
+      - '.github/workflows/kp-recap-android15-smoke.yml'
   workflow_dispatch:
 
 permissions:
