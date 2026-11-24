@@ -1,0 +1,1 @@
+name = "kp-recap-translate"\nmain = "worker.js"\ncompatibility_date = "2026-11-20"\nworkers_dev = false\n\n[ai]\nbinding = "AI"\n
